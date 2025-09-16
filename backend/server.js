@@ -9,7 +9,6 @@ const PORT = 3001;
 app.use(cors());
 app.use(express.json());
 
-// Initialize the Google Generative AI client with your API key
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 app.post('/api/triage', async (req, res) => {
