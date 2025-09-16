@@ -22,7 +22,7 @@ app.post('/api/triage', async (req, res) => {
   console.log('Received triage request...');
 
   try {
-    const model = genAI.getGenerativeModel({ model: "gemini-1.0-pro"});
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
     
     const prompt = `Analyze the following support email. Return ONLY a valid JSON object with this exact structure:
     {
