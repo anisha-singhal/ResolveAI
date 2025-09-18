@@ -4,7 +4,6 @@ require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
 
-// New LangChain and Google GenAI imports
 const { GoogleGenerativeAIEmbeddings } = require("@langchain/google-genai");
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 const { MemoryVectorStore } = require("langchain/vectorstores/memory");
@@ -16,26 +15,22 @@ const PORT = 3001;
 app.use(cors());
 app.use(express.json());
 
-// Global variable to hold our vector store
 let vectorStore;
 
-// Function to initialize the vector store
 async function initializeVectorStore() {
   try {
     console.log("Loading knowledge base...");
     const docPath = path.join(__dirname, 'knowledge_base', 'return_policy.txt');
     const documentText = fs.readFileSync(docPath, 'utf8');
 
-    // Create an instance of the Google embeddings model
     const embeddings = new GoogleGenerativeAIEmbeddings({
         modelName: "text-embedding-004",
         taskType: TaskType.RETRIEVAL_DOCUMENT,
     });
 
-    // Create the in-memory vector store
     vectorStore = await MemoryVectorStore.fromTexts(
-      [documentText], // The content of your documents
-      [{ id: 1 }], // Some metadata, not critical for now
+      [documentText],
+      [{ id: 1 }],
       embeddings
     );
     console.log("✅ Knowledge base loaded and vectorized successfully.");
@@ -44,7 +39,6 @@ async function initializeVectorStore() {
   }
 }
 
-// -- API ROUTE --
 app.post('/api/triage', async (req, res) => {
   console.log('Received triage request...');
   try {
@@ -57,8 +51,7 @@ app.post('/api/triage', async (req, res) => {
     if (!vectorStore) {
         return res.status(500).json({ error: 'Knowledge base is not ready.' });
     }
-    
-    // Perform a similarity search
+
     const searchResults = await vectorStore.similaritySearch(problem, 1);
     const context = searchResults.map(result => result.pageContent).join("\n---\n");
     console.log("Retrieved context:", context);
@@ -90,10 +83,7 @@ app.post('/api/triage', async (req, res) => {
   }
 });
 
-
-// -- SERVER START --
 app.listen(PORT, () => {
   console.log(`Backend server listening on http://localhost:${PORT}`);
-  // Initialize the knowledge base when the server starts
   initializeVectorStore();
 });
