@@ -3,60 +3,57 @@ import axios from 'axios';
 import './App.css';
 
 function App() {
-  const [emailText, setEmailText] = useState('');
-  const [triageResult, setTriageResult] = useState(null);
-  const [isLoading, setIsLoading] = useState(false);
+  const [problem, setProblem] = useState('');
+  const [solution, setSolution] = useState('');
   const [error, setError] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
 
   const handleTriage = async () => {
-    setIsLoading(true);
-    setError('');
-    setTriageResult(null);
-    try {
-      const response = await axios.post('http://localhost:3001/api/triage', {
-        emailText: emailText,
-      });
-      setTriageResult(response.data);
-    } catch (err) {
-      console.error("Error calling triage API:", err);
-      setError('Failed to get triage report. Please try again.');
+    if (!problem) {
+      setError('Please enter a problem description.');
+      return;
     }
-    setIsLoading(false);
+    setIsLoading(true);
+    setSolution('');
+    setError('');
+
+    try {
+      const res = await axios.post('http://localhost:3001/api/triage', {
+        problem: problem, 
+      });
+      setSolution(res.data.solution);
+    } catch (err) {
+      console.error('Error calling triage API:', err);
+      setError('Failed to get a solution. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
-    <div className="app-container">
-      <header className="app-header">
-        <h1>ResolveAI - Triage Agent</h1>
-      </header>
-      <main className="triage-section">
-        <textarea
-          className="email-input"
-          placeholder="Paste customer email here..."
-          value={emailText}
-          onChange={(e) => setEmailText(e.target.value)}
-          disabled={isLoading}
-        ></textarea>
-        
-        <button 
-          className="triage-button" 
-          onClick={handleTriage} 
-          disabled={isLoading}
-        >
-          {isLoading ? 'Analyzing...' : 'Triage Ticket'}
-        </button>
-        
-        {error && <p className="error-message">{error}</p>}
-        
-        {triageResult && (
-          <div className="triage-report">
-            <h2>Response:</h2>
-            <p className="suggested-reply">
-              {triageResult.suggested_reply}
-            </p>
-          </div>
-        )}
-      </main>
+    <div className="App">
+      <h1>ResolveAI Triage</h1>
+      <p>Describe your technical problem below:</p>
+      
+      <textarea
+        value={problem}
+        onChange={(e) => setProblem(e.target.value)}
+        placeholder="Enter your query here..."
+        rows="5"
+      />
+      
+      <button onClick={handleTriage} disabled={isLoading}>
+        {isLoading ? 'Getting Solution...' : 'Get Solution'}
+      </button>
+
+      {error && <p className="error">{error}</p>}
+      
+      {solution && (
+        <div className="solution">
+          <h2>Suggested Solution:</h2>
+          <pre>{solution}</pre>
+        </div>
+      )}
     </div>
   );
 }

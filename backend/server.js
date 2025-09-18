@@ -1,7 +1,14 @@
 const express = require('express');
 const cors = require('cors');
 require('dotenv').config();
-const { GoogleGenerativeAI } = require('@google/generative-ai');
+const fs = require('fs');
+const path = require('path');
+
+// New LangChain and Google GenAI imports
+const { GoogleGenerativeAIEmbeddings } = require("@langchain/google-genai");
+const { GoogleGenerativeAI } = require("@google/generative-ai");
+const { MemoryVectorStore } = require("langchain/vectorstores/memory");
+const { TaskType } = require("@google/generative-ai");
 
 const app = express();
 const PORT = 3001;
@@ -9,52 +16,84 @@ const PORT = 3001;
 app.use(cors());
 app.use(express.json());
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+// Global variable to hold our vector store
+let vectorStore;
 
-app.post('/api/triage', async (req, res) => {
-  const { emailText } = req.body;
-  
-  if (!emailText) {
-    return res.status(400).json({ error: 'Email text is required' });
-  }
-
-  console.log('Received triage request...');
-
+// Function to initialize the vector store
+async function initializeVectorStore() {
   try {
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
-    
-    const prompt = `Analyze the following support email. Return ONLY a valid JSON object with this exact structure:
-    {
-      "classification": "A short, descriptive category for the email's main topic (e.g., Billing Inquiry, Password Reset, Bug Report, Feature Request).",
-      "priority": "one of: High, Medium, Low, based on urgency and user sentiment.",
-      "suggested_reply": "A professional and empathetic first response to the customer that acknowledges their specific issue and sets a clear expectation for the next steps or a resolution timeline."
+    console.log("Loading knowledge base...");
+    const docPath = path.join(__dirname, 'knowledge_base', 'return_policy.txt');
+    const documentText = fs.readFileSync(docPath, 'utf8');
+
+    // Create an instance of the Google embeddings model
+    const embeddings = new GoogleGenerativeAIEmbeddings({
+        modelName: "text-embedding-004",
+        taskType: TaskType.RETRIEVAL_DOCUMENT,
+    });
+
+    // Create the in-memory vector store
+    vectorStore = await MemoryVectorStore.fromTexts(
+      [documentText], // The content of your documents
+      [{ id: 1 }], // Some metadata, not critical for now
+      embeddings
+    );
+    console.log("✅ Knowledge base loaded and vectorized successfully.");
+  } catch (error) {
+    console.error("❌ Error initializing vector store:", error);
+  }
+}
+
+// -- API ROUTE --
+app.post('/api/triage', async (req, res) => {
+  console.log('Received triage request...');
+  try {
+    const problem = req.body.problem;
+
+    if (!problem) {
+      return res.status(400).json({ error: 'Problem description is required.' });
     }
 
-    Email to Analyze: "${emailText}"`;
+    if (!vectorStore) {
+        return res.status(500).json({ error: 'Knowledge base is not ready.' });
+    }
     
-    // Generate content based on the prompt
+    // Perform a similarity search
+    const searchResults = await vectorStore.similaritySearch(problem, 1);
+    const context = searchResults.map(result => result.pageContent).join("\n---\n");
+    console.log("Retrieved context:", context);
+
+    const prompt = `
+      You are a customer support agent.
+      Use the following context to answer the user's question. 
+      If the context does not contain the answer, state that you do not have that information.
+
+      Context:
+      ---
+      ${context}
+      ---
+
+      User's Question: "${problem}"
+    `;
+
+    const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
     const result = await model.generateContent(prompt);
     const response = await result.response;
-    const rawText = response.text();
-    
-    console.log('--- RAW AI RESPONSE ---');
-    console.log(rawText);
-    console.log('--- END RAW AI RESPONSE ---');
+    const text = response.text();
 
-    const cleanText = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
-
-    // Parse the cleaned text into a JSON object
-    const jsonResponse = JSON.parse(cleanText);
-    
-    console.log('Triage complete:', jsonResponse);
-    res.json(jsonResponse);
+    res.json({ solution: text });
 
   } catch (error) {
-    console.error('Error with Gemini API or JSON parsing:', error);
-    res.status(500).json({ error: 'Failed to triage ticket' });
+    console.error('Error in RAG pipeline:', error);
+    res.status(500).json({ error: 'Failed to get a response from the AI.' });
   }
 });
 
+
+// -- SERVER START --
 app.listen(PORT, () => {
   console.log(`Backend server listening on http://localhost:${PORT}`);
+  // Initialize the knowledge base when the server starts
+  initializeVectorStore();
 });
