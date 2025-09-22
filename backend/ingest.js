@@ -1,4 +1,3 @@
-// ingest.js
 const { PineconeStore } = require("@langchain/pinecone");
 const { Pinecone } = require("@pinecone-database/pinecone");
 const { GoogleGenerativeAIEmbeddings } = require("@langchain/google-genai");
@@ -12,7 +11,7 @@ async function main() {
     try {
         console.log("Starting Pinecone ingestion process...");
 
-        const pinecone = new Pinecone(); 
+        const pinecone = new Pinecone();
         const indexName = "resolveai-kb";
         const pineconeIndex = pinecone.index(indexName);
         console.log(`- Connected to Pinecone index "${indexName}"`);
