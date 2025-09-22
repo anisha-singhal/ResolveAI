@@ -13,7 +13,10 @@
   "dependencies": {
     "@chroma-core/default-embed": "^0.1.8",
     "@google/generative-ai": "^0.11.0",
+    "@langchain/core": "^0.3.77",
     "@langchain/google-genai": "^0.2.18",
+    "@langchain/pinecone": "^0.2.0",
+    "@pinecone-database/pinecone": "^6.1.2",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
