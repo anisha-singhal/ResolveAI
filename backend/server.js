@@ -8,12 +8,10 @@ const imaps = require('imap-simple');
 const { simpleParser } = require('mailparser');
 const sqlite3 = require('sqlite3').verbose();
 const { open } = require('sqlite');
+const nodemailer = require('nodemailer');
 
-const { PineconeStore } = require("@langchain/pinecone");
 const { Pinecone } = require("@pinecone-database/pinecone");
-const { GoogleGenerativeAIEmbeddings } = require("@langchain/google-genai");
 const { GoogleGenerativeAI } = require("@google/generative-ai");
-const { TaskType } = require("@google/generative-ai");
 
 const app = express();
 const PORT = 3001;
@@ -22,17 +20,36 @@ app.use(cors());
 app.use(express.json());
 
 let db; 
-let vectorStore;
+let pineconeIndex;
+let genAI;
+let embeddingModel;
+
+const transporter = nodemailer.createTransport({
+    service: 'gmail',
+    auth: {
+        user: process.env.IMAP_USER,
+        pass: process.env.IMAP_PASSWORD
+    }
+});
 
 async function processProblem(problem){
   console.log("Processing problem:", problem);
   
-  const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
-  const generativeModel = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
+  const embeddingResult = await embeddingModel.embedContent(problem);
+  const queryVector = embeddingResult.embedding.values;
 
-  const searchResults = await vectorStore.similaritySearch(problem, 1);
-  const context = searchResults.map(result => result.pageContent).join("\n---\n");
+  const searchResults = await pineconeIndex.query({
+    topK: 2,
+    vector: queryVector,
+    includeMetadata: true
+  });
+
+  const context = searchResults.matches.map(result => result.metadata.text).join("\n---\n");
   console.log("Retrieved context:", context);
+
+  // Use a model resource that your project has access to (see ListModels output).
+  // The SDK will call the correct endpoint when passed the full resource name.
+  const generativeModel = genAI.getGenerativeModel({ model: "models/gemini-flash-latest" });
 
   const prompt = `
     You are a customer support agent.
@@ -59,7 +76,7 @@ const emailConfig = {
 };
 
 async function checkEmails() {
-  if (!db || !vectorStore) {
+  if (!db || !pineconeIndex) {
     console.log("Database or vector store not ready, skipping email check.");
     return;
   }
@@ -86,6 +103,22 @@ async function checkEmails() {
       
       const solution = await processProblem(mail.text);
       console.log('AI Generated Solution:', solution);
+
+      const mailOptions = {
+          from: process.env.IMAP_USER,
+          to: mail.from.address,
+          subject: `Re: ${mail.subject}`,
+          text: solution,
+          inReplyTo: mail.messageId, 
+          references: mail.messageId   
+      };
+
+      try {
+          await transporter.sendMail(mailOptions);
+          console.log(`- Sent reply successfully to ${mail.from.address}.`);
+      } catch (sendError) {
+          console.error("Error sending email reply:", sendError);
+      }
 
       await db.run(
         'INSERT INTO tickets (sender, subject, body, solution) VALUES (?, ?, ?, ?)',
@@ -138,19 +171,15 @@ async function startServer() {
   const pineconeApiKey = process.env.PINECONE_API_KEY;
   if (!pineconeApiKey) {
     console.error('\nMissing Pinecone configuration: PINECONE_API_KEY is not set.');
-    console.error('Create a `.env` file in the `backend/` directory with:');
-    console.error('  PINECONE_API_KEY=your_api_key_here');
-    console.error('Or set the environment variable in your shell before running the server.');
     process.exit(1);
   }
+  
+  genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
+  embeddingModel = genAI.getGenerativeModel({ model: "embedding-001" });
+  console.log("Google AI Embedding model initialized.");
 
   const pinecone = new Pinecone({ apiKey: pineconeApiKey });
-  const pineconeIndex = pinecone.index("resolveai-kb");
-  const embeddings = new GoogleGenerativeAIEmbeddings({
-    modelName: "text-embedding-004",
-    taskType: TaskType.RETRIEVAL_QUERY,
-  });
-  vectorStore = await PineconeStore.fromExistingIndex(embeddings, { pineconeIndex });
+  pineconeIndex = pinecone.index("resolveai-kb");
   console.log("Pinecone vector store initialized successfully.");
 
   cron.schedule('* * * * *', checkEmails);
