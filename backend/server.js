@@ -106,7 +106,7 @@ async function checkEmails() {
 
       const mailOptions = {
           from: process.env.IMAP_USER,
-          to: mail.from.address,
+          to: mail.from.value[0].address,
           subject: `Re: ${mail.subject}`,
           text: solution,
           inReplyTo: mail.messageId, 
