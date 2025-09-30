@@ -34,21 +34,19 @@ const transporter = nodemailer.createTransport({
 
 async function processProblem(problem){
   console.log("Processing problem:", problem);
-  
+
   const embeddingResult = await embeddingModel.embedContent(problem);
   const queryVector = embeddingResult.embedding.values;
 
   const searchResults = await pineconeIndex.query({
-    topK: 2,
-    vector: queryVector,
-    includeMetadata: true
+      topK: 2,
+      vector: queryVector,
+      includeMetadata: true,
   });
 
   const context = searchResults.matches.map(result => result.metadata.text).join("\n---\n");
   console.log("Retrieved context:", context);
 
-  // Use a model resource that your project has access to (see ListModels output).
-  // The SDK will call the correct endpoint when passed the full resource name.
   const generativeModel = genAI.getGenerativeModel({ model: "models/gemini-flash-latest" });
 
   const prompt = `
@@ -100,22 +98,49 @@ async function checkEmails() {
       console.log('--- PROCESSING EMAIL ---');
       console.log('From:', mail.from.text);
       console.log('Subject:', mail.subject);
-      
+
+      console.log('--- DETAILED EMAIL HEADERS ---');
+      console.log(mail.headers);
+      console.log('----------------------------');
+
+      let headerMessageId;
+      try {
+        headerMessageId = (mail.headers && typeof mail.headers.get === 'function')
+          ? mail.headers.get('message-id')
+          : (mail.headers && (mail.headers['message-id'] || mail.headers['Message-ID']));
+      } catch (e) {
+        headerMessageId = undefined;
+      }
+      const originalMessageId = mail.messageId || headerMessageId;
+
+      const replySubject = (mail.subject && mail.subject !== 'undefined') ? `Re: ${mail.subject}` : 'Re:';
+
       const solution = await processProblem(mail.text);
       console.log('AI Generated Solution:', solution);
 
+      const toAddress = (mail.from && mail.from.value && mail.from.value[0] && mail.from.value[0].address)
+        ? mail.from.value[0].address
+        : (mail.from && mail.from.address) || process.env.IMAP_USER;
+
       const mailOptions = {
           from: process.env.IMAP_USER,
-          to: mail.from.value[0].address,
-          subject: `Re: ${mail.subject}`,
+          to: toAddress,
+          subject: replySubject,
           text: solution,
-          inReplyTo: mail.messageId, 
-          references: mail.messageId   
       };
+
+      if (originalMessageId) {
+        mailOptions.inReplyTo = originalMessageId;
+        mailOptions.references = originalMessageId;
+        mailOptions.headers = Object.assign({}, mailOptions.headers, {
+          'In-Reply-To': originalMessageId,
+          'References': originalMessageId,
+        });
+      }
 
       try {
           await transporter.sendMail(mailOptions);
-          console.log(`- Sent reply successfully to ${mail.from.address}.`);
+          console.log(`- Sent reply successfully to ${mail.from.value[0].address}.`);
       } catch (sendError) {
           console.error("Error sending email reply:", sendError);
       }
@@ -175,7 +200,7 @@ async function startServer() {
   }
   
   genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
-  embeddingModel = genAI.getGenerativeModel({ model: "embedding-001" });
+  embeddingModel = genAI.getGenerativeModel({ model: "embedding-001",  taskType: "RETRIEVAL_QUERY"});
   console.log("Google AI Embedding model initialized.");
 
   const pinecone = new Pinecone({ apiKey: pineconeApiKey });
@@ -183,10 +208,10 @@ async function startServer() {
   console.log("Pinecone vector store initialized successfully.");
 
   cron.schedule('* * * * *', checkEmails);
-  console.log('⏰ Automated email checker is scheduled to run every minute.');
+  console.log('Automated email checker is scheduled to run every minute.');
 
   app.listen(PORT, () => {
-    console.log(`🚀 Backend server listening on http://localhost:${PORT}`);
+    console.log(`Backend server listening on http://localhost:${PORT}`);
   });
 }
 
