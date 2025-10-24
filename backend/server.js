@@ -16,6 +16,8 @@ const { GoogleGenerativeAI } = require("@google/generative-ai");
 const app = express();
 const PORT = 3001;
 
+const SUPPORT_CATEGORIES = ["Shipping Inquiry", "Return Request", "Billing Question", "General Inquiry"];
+
 app.use(cors());
 app.use(express.json());
 
@@ -25,15 +27,29 @@ let genAI;
 let embeddingModel;
 
 const transporter = nodemailer.createTransport({
-    service: 'gmail',
+    host: 'smtp.gmail.com',
+    port: 465,
+    secure: true, // use TLS
     auth: {
         user: process.env.IMAP_USER,
         pass: process.env.IMAP_PASSWORD
+    },
+    // allow specifying custom headers in message options
+    tls: {
+      // do not fail on invalid certs for some environments; change if not desired
+      rejectUnauthorized: false
     }
 });
 
+// Verify transporter configuration at startup to catch auth/connection issues early
+transporter.verify().then(() => {
+  console.log('Nodemailer transporter verified. SMTP is ready to send emails.');
+}).catch(err => {
+  console.error('Failed to verify nodemailer transporter (SMTP credentials/config):', err);
+});
+
 async function processProblem(problem){
-  console.log("Processing problem:", problem);
+  console.log("Processing problem with advanced triage:", problem);
 
   const embeddingResult = await embeddingModel.embedContent(problem);
   const queryVector = embeddingResult.embedding.values;
@@ -50,16 +66,35 @@ async function processProblem(problem){
   const generativeModel = genAI.getGenerativeModel({ model: "models/gemini-flash-latest" });
 
   const prompt = `
-    You are a customer support agent.
-    Use the following context to answer the user's question.
-    If the context does not contain the answer, state that you do not have that information.
-    Context: --- ${context} ---
-    User's Question: "${problem}"
+    You are an advanced AI support agent. Your task is to perform a detailed triage of a user's email by following a step-by-step reasoning process.
+
+    Step 1: Analyze the user's email and summarize the core problem.
+    Step 2: Classify the email into one of the following predefined categories: ${SUPPORT_CATEGORIES.join(", ")}.
+    Step 3: Determine the priority: "Low", "Medium", or "High".
+    Step 4: Rate your confidence in this analysis from 0.0 to 1.0.
+    Step 5: Generate a helpful solution for the user based ONLY on the provided context.
+
+    Knowledge Base Context:
+    ---
+    ${context}
+    ---
+    User's Email: "${problem}"
+
+    Provide your final analysis as a single JSON object with the keys "category", "priority", "confidence", and "solution".
   `;
+  
   const result = await generativeModel.generateContent(prompt);
-  const response = await result.response;
-  return response.text();
+  const responseText = (await result.response).text();
+  const cleanedJson = responseText.replace(/```json\n?|\n?```/g, '').trim();
+  
+  try {
+      return JSON.parse(cleanedJson);
+  } catch (e) {
+      console.error("Failed to parse AI response as JSON:", cleanedJson);
+      return { category: "Uncategorized", priority: "Medium", confidence: 0.5, solution: "Could not process AI response." };
+  }
 }
+
 
 const emailConfig = {
   imap: {
@@ -69,7 +104,7 @@ const emailConfig = {
     port: 993,
     tls: true,
     tlsOptions: { rejectUnauthorized: false },
-    authTimeout: 3000
+    authTimeout: 10000
   }
 };
 
@@ -98,56 +133,131 @@ async function checkEmails() {
       console.log('--- PROCESSING EMAIL ---');
       console.log('From:', mail.from.text);
       console.log('Subject:', mail.subject);
+      
+      const triageResult = await processProblem(mail.text);
+      console.log('AI Triage Result:', triageResult);
 
-      console.log('--- DETAILED EMAIL HEADERS ---');
-      console.log(mail.headers);
-      console.log('----------------------------');
+      // Extract message IDs and references
+      const originalMessageId = mail.messageId || 
+        mail.headers.get('message-id') || 
+        mail.headers.get('Message-ID');
 
-      let headerMessageId;
-      try {
-        headerMessageId = (mail.headers && typeof mail.headers.get === 'function')
-          ? mail.headers.get('message-id')
-          : (mail.headers && (mail.headers['message-id'] || mail.headers['Message-ID']));
-      } catch (e) {
-        headerMessageId = undefined;
+      const messageReferences = mail.references || 
+        mail.headers.get('references') || 
+        mail.headers.get('References') || [];
+
+      // Ensure we have arrays for references
+      const references = Array.isArray(messageReferences) 
+        ? messageReferences 
+        : messageReferences.split(/[\s,]+/).filter(Boolean);
+
+      // Generate a unique message ID for our reply that matches Gmail format
+      const domain = process.env.IMAP_USER.split('@')[1];
+      const timestamp = Date.now();
+      const randomStr = Math.random().toString(36).substring(2, 10);
+      const replyMessageId = `<reply.${timestamp}.${randomStr}@${domain}>`;
+
+      // Build the references chain
+      const allReferences = [...references];
+      if (originalMessageId && !allReferences.includes(originalMessageId)) {
+        allReferences.push(originalMessageId);
       }
-      const originalMessageId = mail.messageId || headerMessageId;
 
-      const replySubject = (mail.subject && mail.subject !== 'undefined') ? `Re: ${mail.subject}` : 'Re:';
+  // Preserve the original subject for threading. If original has no subject, keep it blank.
+  const originalSubject = (typeof mail.subject === 'string') ? mail.subject : '';
+  const cleanSubject = (originalSubject || '').replace(/^(Re|RE|Fw|FW|Fwd|FWD):\s+/g, '').trim();
+  // Use the exact original subject (could be empty) prefixed with Re: only if subject exists.
+  const replySubject = cleanSubject ? `Re: ${cleanSubject}` : '';
 
-      const solution = await processProblem(mail.text);
-      console.log('AI Generated Solution:', solution);
+      // Get recipient address
+      const toAddress = (mail.from.value && mail.from.value[0] && mail.from.value[0].address) || 
+                       mail.from.address || 
+                       process.env.IMAP_USER;
 
-      const toAddress = (mail.from && mail.from.value && mail.from.value[0] && mail.from.value[0].address)
-        ? mail.from.value[0].address
-        : (mail.from && mail.from.address) || process.env.IMAP_USER;
+      // Log incoming mail details for debugging
+      console.log('Processing incoming mail:', {
+        originalMessageId,
+        existingReferences: references,
+        subject: mail.subject,
+        headers: mail.headers
+      });
 
-      const mailOptions = {
-          from: process.env.IMAP_USER,
-          to: toAddress,
-          subject: replySubject,
-          text: solution,
+      // Build mail options. Only include In-Reply-To/References headers when we have values
+      const headers = {
+        'Message-ID': replyMessageId,
+        'Thread-Topic': cleanSubject,
+        'Thread-Index': `${timestamp}.${randomStr}`
       };
 
-      if (originalMessageId) {
-        mailOptions.inReplyTo = originalMessageId;
-        mailOptions.references = originalMessageId;
-        mailOptions.headers = Object.assign({}, mailOptions.headers, {
-          'In-Reply-To': originalMessageId,
-          'References': originalMessageId,
-        });
+      if (originalMessageId) headers['In-Reply-To'] = originalMessageId;
+      if (allReferences.length) headers['References'] = allReferences.join(' ');
+
+      const mailOptions = {
+        from: {
+          name: 'Customer Support',
+          address: process.env.IMAP_USER
+        },
+        to: toAddress,
+        subject: replySubject,
+        text: triageResult.solution,
+        messageId: replyMessageId,
+        // nodemailer maps inReplyTo to the In-Reply-To header; only set when available
+        inReplyTo: originalMessageId || undefined,
+        // set References only if we have them
+        references: allReferences.length ? allReferences.join(' ') : undefined,
+        headers
+      };
+
+      // Log raw headers and computed threading headers to help diagnose Gmail grouping
+      try {
+        console.log('Raw incoming headers (first 30):', [...(mail.headers || [])].slice(0, 30));
+      } catch (e) {
+        console.log('Could not enumerate raw headers:', e);
       }
 
+      console.log('Computed threading fields:', {
+        originalMessageId,
+        allReferences,
+        replySubject
+      });
+
+      // Log the outgoing mail threading details
+      console.log('Outgoing mail threading details:', {
+        messageId: mailOptions.messageId,
+        inReplyTo: mailOptions.inReplyTo,
+        subject: mailOptions.subject,
+        references: mailOptions.references
+      });
+
       try {
-          await transporter.sendMail(mailOptions);
-          console.log(`- Sent reply successfully to ${mail.from.value[0].address}.`);
+          // Log the outgoing options (avoid logging full body in production)
+          console.log('Sending reply with mailOptions:', {
+            to: mailOptions.to,
+            subject: mailOptions.subject,
+            messageId: mailOptions.messageId,
+            inReplyTo: mailOptions.inReplyTo,
+            references: mailOptions.references,
+            headers: mailOptions.headers
+          });
+
+          const info = await transporter.sendMail(mailOptions);
+
+          // info may contain accepted/rejected and messageId depending on transport
+          console.log('- sendMail result:', {
+            accepted: info.accepted,
+            rejected: info.rejected,
+            envelope: info.envelope,
+            messageId: info.messageId || mailOptions.messageId
+          });
+
+          console.log(`- Sent reply successfully to ${toAddress}`);
       } catch (sendError) {
-          console.error("Error sending email reply:", sendError);
+          console.error('Error sending email reply (sendMail failed):', sendError);
       }
 
       await db.run(
-        'INSERT INTO tickets (sender, subject, body, solution) VALUES (?, ?, ?, ?)',
-        [mail.from.text, mail.subject, mail.text, solution]
+        'INSERT INTO tickets (sender, subject, body, category, priority, confidence, solution) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        [mail.from.text, mail.subject, mail.text, triageResult.category, triageResult.priority, triageResult.confidence, triageResult.solution]
       );
       console.log('- Saved ticket to the database.');
       
@@ -166,8 +276,8 @@ app.post('/api/triage', async (req, res) => {
     if (!problem) {
       return res.status(400).json({ error: 'Problem description is required.' });
     }
-    const solution = await processProblem(problem);
-    res.json({ solution });
+    const triageResult = await processProblem(problem);
+    res.json(triageResult);
   } catch (error) {
     console.error('Error in RAG pipeline:', error);
     res.status(500).json({ error: 'Failed to get a response from the AI.' });
@@ -187,6 +297,9 @@ async function startServer() {
       sender TEXT,
       subject TEXT,
       body TEXT,
+      category TEXT,
+      priority TEXT,
+      confidence REAL,
       solution TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
@@ -200,7 +313,7 @@ async function startServer() {
   }
   
   genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
-  embeddingModel = genAI.getGenerativeModel({ model: "embedding-001",  taskType: "RETRIEVAL_QUERY"});
+  embeddingModel = genAI.getGenerativeModel({ model: "embedding-001", taskType: "RETRIEVAL_QUERY"});
   console.log("Google AI Embedding model initialized.");
 
   const pinecone = new Pinecone({ apiKey: pineconeApiKey });
@@ -210,9 +323,32 @@ async function startServer() {
   cron.schedule('* * * * *', checkEmails);
   console.log('Automated email checker is scheduled to run every minute.');
 
-  app.listen(PORT, () => {
-    console.log(`Backend server listening on http://localhost:${PORT}`);
-  });
+  // Try to listen on the desired port; if it's in use, try next ports up to a limit
+  const attemptListen = (port, attemptsLeft = 5) => {
+    const server = app.listen(port, () => {
+      console.log(`Backend server listening on http://localhost:${port}`);
+    });
+
+    server.on('error', (err) => {
+      if (err && err.code === 'EADDRINUSE') {
+        console.error(`Port ${port} is already in use.`);
+        if (attemptsLeft > 0) {
+          const nextPort = port + 1;
+          console.log(`Attempting to listen on port ${nextPort} (${attemptsLeft - 1} attempts left)...`);
+          // small delay before retry to avoid tight loop
+          setTimeout(() => attemptListen(nextPort, attemptsLeft - 1), 500);
+        } else {
+          console.error('Exhausted port retry attempts. Please free port or set PORT env variable to another port. Exiting.');
+          process.exit(1);
+        }
+      } else {
+        console.error('Server error while trying to listen:', err);
+        process.exit(1);
+      }
+    });
+  };
+
+  attemptListen(PORT, 5);
 }
 
 startServer();

@@ -1,0 +1,3 @@
+For payment issues, please ask the user to double-check that their card details are correct. If the payment still fails, it may be an issue with their bank.
+If a user reports that a payment was taken from their account but the order failed, please escalate this to the billing team immediately. This is a high-priority issue. Assure the user that we will investigate and resolve it.
+We accept Visa, Mastercard, and American Express. We do not accept PayPal at this time.
