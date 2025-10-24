@@ -29,19 +29,16 @@ let embeddingModel;
 const transporter = nodemailer.createTransport({
     host: 'smtp.gmail.com',
     port: 465,
-    secure: true, // use TLS
+    secure: true, 
     auth: {
         user: process.env.IMAP_USER,
         pass: process.env.IMAP_PASSWORD
     },
-    // allow specifying custom headers in message options
     tls: {
-      // do not fail on invalid certs for some environments; change if not desired
       rejectUnauthorized: false
     }
 });
 
-// Verify transporter configuration at startup to catch auth/connection issues early
 transporter.verify().then(() => {
   console.log('Nodemailer transporter verified. SMTP is ready to send emails.');
 }).catch(err => {
@@ -137,7 +134,6 @@ async function checkEmails() {
       const triageResult = await processProblem(mail.text);
       console.log('AI Triage Result:', triageResult);
 
-      // Extract message IDs and references
       const originalMessageId = mail.messageId || 
         mail.headers.get('message-id') || 
         mail.headers.get('Message-ID');
@@ -146,35 +142,28 @@ async function checkEmails() {
         mail.headers.get('references') || 
         mail.headers.get('References') || [];
 
-      // Ensure we have arrays for references
       const references = Array.isArray(messageReferences) 
         ? messageReferences 
         : messageReferences.split(/[\s,]+/).filter(Boolean);
 
-      // Generate a unique message ID for our reply that matches Gmail format
       const domain = process.env.IMAP_USER.split('@')[1];
       const timestamp = Date.now();
       const randomStr = Math.random().toString(36).substring(2, 10);
       const replyMessageId = `<reply.${timestamp}.${randomStr}@${domain}>`;
 
-      // Build the references chain
       const allReferences = [...references];
       if (originalMessageId && !allReferences.includes(originalMessageId)) {
         allReferences.push(originalMessageId);
       }
 
-  // Preserve the original subject for threading. If original has no subject, keep it blank.
   const originalSubject = (typeof mail.subject === 'string') ? mail.subject : '';
   const cleanSubject = (originalSubject || '').replace(/^(Re|RE|Fw|FW|Fwd|FWD):\s+/g, '').trim();
-  // Use the exact original subject (could be empty) prefixed with Re: only if subject exists.
   const replySubject = cleanSubject ? `Re: ${cleanSubject}` : '';
 
-      // Get recipient address
       const toAddress = (mail.from.value && mail.from.value[0] && mail.from.value[0].address) || 
                        mail.from.address || 
                        process.env.IMAP_USER;
 
-      // Log incoming mail details for debugging
       console.log('Processing incoming mail:', {
         originalMessageId,
         existingReferences: references,
@@ -182,7 +171,6 @@ async function checkEmails() {
         headers: mail.headers
       });
 
-      // Build mail options. Only include In-Reply-To/References headers when we have values
       const headers = {
         'Message-ID': replyMessageId,
         'Thread-Topic': cleanSubject,
@@ -201,14 +189,11 @@ async function checkEmails() {
         subject: replySubject,
         text: triageResult.solution,
         messageId: replyMessageId,
-        // nodemailer maps inReplyTo to the In-Reply-To header; only set when available
         inReplyTo: originalMessageId || undefined,
-        // set References only if we have them
         references: allReferences.length ? allReferences.join(' ') : undefined,
         headers
       };
 
-      // Log raw headers and computed threading headers to help diagnose Gmail grouping
       try {
         console.log('Raw incoming headers (first 30):', [...(mail.headers || [])].slice(0, 30));
       } catch (e) {
@@ -221,7 +206,6 @@ async function checkEmails() {
         replySubject
       });
 
-      // Log the outgoing mail threading details
       console.log('Outgoing mail threading details:', {
         messageId: mailOptions.messageId,
         inReplyTo: mailOptions.inReplyTo,
@@ -230,7 +214,6 @@ async function checkEmails() {
       });
 
       try {
-          // Log the outgoing options (avoid logging full body in production)
           console.log('Sending reply with mailOptions:', {
             to: mailOptions.to,
             subject: mailOptions.subject,
@@ -242,7 +225,6 @@ async function checkEmails() {
 
           const info = await transporter.sendMail(mailOptions);
 
-          // info may contain accepted/rejected and messageId depending on transport
           console.log('- sendMail result:', {
             accepted: info.accepted,
             rejected: info.rejected,
@@ -269,6 +251,16 @@ async function checkEmails() {
     console.error("Error checking emails:", error);
   }
 }
+
+app.get('/api/tickets', async (req, res) => {
+    try {
+        const tickets = await db.all('SELECT * FROM tickets ORDER BY created_at DESC');
+        res.json(tickets);
+    } catch (error) {
+        console.error('Error fetching tickets:', error);
+        res.status(500).json({ error: 'Failed to fetch tickets.' });
+    }
+});
 
 app.post('/api/triage', async (req, res) => {
   try {
@@ -323,7 +315,6 @@ async function startServer() {
   cron.schedule('* * * * *', checkEmails);
   console.log('Automated email checker is scheduled to run every minute.');
 
-  // Try to listen on the desired port; if it's in use, try next ports up to a limit
   const attemptListen = (port, attemptsLeft = 5) => {
     const server = app.listen(port, () => {
       console.log(`Backend server listening on http://localhost:${port}`);
