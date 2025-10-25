@@ -25,6 +25,9 @@ function App() {
   const [editedPriority, setEditedPriority] = useState('');
   const [isVerifying, setIsVerifying] = useState(false);
 
+  // API base URL from environment variable
+  const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001';
+
   // Define categories and priorities
   const SUPPORT_CATEGORIES = ["Shipping Inquiry", "Return Request", "Billing Question", "General Inquiry", "Uncategorized"];
   const PRIORITIES = ["Low", "Medium", "High"];
@@ -33,7 +36,7 @@ function App() {
     const fetchTickets = async () => {
       if (tickets.length === 0) setIsLoading(true);
       try {
-        const res = await axios.get('http://localhost:3001/api/tickets');
+        const res = await axios.get(`${API_BASE_URL}/api/tickets`);
         setTickets(res.data);
         setError('');
       } catch (err) {
@@ -63,7 +66,7 @@ function App() {
     setError('');
 
     try {
-      await axios.post(`http://localhost:3001/api/tickets/${selectedTicket.id}/verify`, {
+      await axios.post(`${API_BASE_URL}/api/tickets/${selectedTicket.id}/verify`, {
         category: editedCategory,
         priority: editedPriority,
       });
