@@ -9,7 +9,7 @@
 
 ## 🚀 Live Demo
 
-**[🌐 Frontend Dashboard](https://resolve-ai-zs2q.vercel.app/)** | **[⚡ Backend API](https://resolveai-backend.onrender.com)** | **[🎥 Video Demo](YOUR_VIDEO_DEMO_URL_HERE)**
+**[🌐 Frontend Link](https://resolve-ai-zs2q.vercel.app/)** | **[⚡ Backend API](https://resolveai-backend.onrender.com)** | **[🎥 Video Demo](YOUR_VIDEO_DEMO_URL_HERE)**
 </div>
 
 ResolveAI is an end-to-end autonomous system designed to ingest, analyze, and respond to customer support emails, eliminating the need for manual intervention in the initial triage process. It leverages Retrieval-Augmented Generation (RAG) and advanced prompt engineering to provide context-aware solutions and categorizes incoming requests.
