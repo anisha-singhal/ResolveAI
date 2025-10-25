@@ -105,6 +105,7 @@ const emailConfig = {
   }
 };
 
+
 async function checkEmails() {
   if (!db || !pineconeIndex) {
     console.log("Database or vector store not ready, skipping email check.");
@@ -134,107 +135,32 @@ async function checkEmails() {
       const triageResult = await processProblem(mail.text);
       console.log('AI Triage Result:', triageResult);
 
-      const originalMessageId = mail.messageId || 
-        mail.headers.get('message-id') || 
-        mail.headers.get('Message-ID');
+      if (triageResult.confidence > 0.8) {
+        console.log(`- Confidence (${triageResult.confidence}) > 0.8. Sending automatic reply.`);
+        
+        const originalMessageId = mail.messageId || (mail.headers && mail.headers.get('message-id'));
+        const originalReferences = mail.references || (mail.headers && mail.headers.get('references')) || [];
+        const newReferences = [...(Array.isArray(originalReferences) ? originalReferences : [originalReferences]), originalMessageId].filter(Boolean);
 
-      const messageReferences = mail.references || 
-        mail.headers.get('references') || 
-        mail.headers.get('References') || [];
+        const mailOptions = {
+            from: process.env.IMAP_USER,
+            to: mail.from.value[0].address,
+            subject: mail.subject ? `Re: ${mail.subject}` : 'Re: Your recent inquiry',
+            text: triageResult.solution,
+            headers: {
+              'In-Reply-To': originalMessageId,
+              'References': newReferences.join(' ')
+            }
+        };
 
-      const references = Array.isArray(messageReferences) 
-        ? messageReferences 
-        : messageReferences.split(/[\s,]+/).filter(Boolean);
-
-      const domain = process.env.IMAP_USER.split('@')[1];
-      const timestamp = Date.now();
-      const randomStr = Math.random().toString(36).substring(2, 10);
-      const replyMessageId = `<reply.${timestamp}.${randomStr}@${domain}>`;
-
-      const allReferences = [...references];
-      if (originalMessageId && !allReferences.includes(originalMessageId)) {
-        allReferences.push(originalMessageId);
-      }
-
-  const originalSubject = (typeof mail.subject === 'string') ? mail.subject : '';
-  const cleanSubject = (originalSubject || '').replace(/^(Re|RE|Fw|FW|Fwd|FWD):\s+/g, '').trim();
-  const replySubject = cleanSubject ? `Re: ${cleanSubject}` : '';
-
-      const toAddress = (mail.from.value && mail.from.value[0] && mail.from.value[0].address) || 
-                       mail.from.address || 
-                       process.env.IMAP_USER;
-
-      console.log('Processing incoming mail:', {
-        originalMessageId,
-        existingReferences: references,
-        subject: mail.subject,
-        headers: mail.headers
-      });
-
-      const headers = {
-        'Message-ID': replyMessageId,
-        'Thread-Topic': cleanSubject,
-        'Thread-Index': `${timestamp}.${randomStr}`
-      };
-
-      if (originalMessageId) headers['In-Reply-To'] = originalMessageId;
-      if (allReferences.length) headers['References'] = allReferences.join(' ');
-
-      const mailOptions = {
-        from: {
-          name: 'Customer Support',
-          address: process.env.IMAP_USER
-        },
-        to: toAddress,
-        subject: replySubject,
-        text: triageResult.solution,
-        messageId: replyMessageId,
-        inReplyTo: originalMessageId || undefined,
-        references: allReferences.length ? allReferences.join(' ') : undefined,
-        headers
-      };
-
-      try {
-        console.log('Raw incoming headers (first 30):', [...(mail.headers || [])].slice(0, 30));
-      } catch (e) {
-        console.log('Could not enumerate raw headers:', e);
-      }
-
-      console.log('Computed threading fields:', {
-        originalMessageId,
-        allReferences,
-        replySubject
-      });
-
-      console.log('Outgoing mail threading details:', {
-        messageId: mailOptions.messageId,
-        inReplyTo: mailOptions.inReplyTo,
-        subject: mailOptions.subject,
-        references: mailOptions.references
-      });
-
-      try {
-          console.log('Sending reply with mailOptions:', {
-            to: mailOptions.to,
-            subject: mailOptions.subject,
-            messageId: mailOptions.messageId,
-            inReplyTo: mailOptions.inReplyTo,
-            references: mailOptions.references,
-            headers: mailOptions.headers
-          });
-
-          const info = await transporter.sendMail(mailOptions);
-
-          console.log('- sendMail result:', {
-            accepted: info.accepted,
-            rejected: info.rejected,
-            envelope: info.envelope,
-            messageId: info.messageId || mailOptions.messageId
-          });
-
-          console.log(`- Sent reply successfully to ${toAddress}`);
-      } catch (sendError) {
-          console.error('Error sending email reply (sendMail failed):', sendError);
+        try {
+            await transporter.sendMail(mailOptions);
+            console.log(`- Sent reply successfully to ${mail.from.value[0].address}.`);
+        } catch (sendError) {
+            console.error("Error sending email reply:", sendError);
+        }
+      } else {
+        console.log(`- Confidence (${triageResult.confidence}) <= 0.8. Flagging for human review. Reply NOT sent.`);
       }
 
       await db.run(
