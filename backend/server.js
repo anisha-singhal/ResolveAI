@@ -230,6 +230,10 @@ app.post('/api/triage', async (req, res) => {
   }
 });
 
+app.get('/', (req, res) => {
+  res.status(200).send('Server is healthy and running!');
+});
+
 async function startServer() {
   db = await open({
     filename: './triage.db',
