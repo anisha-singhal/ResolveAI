@@ -262,6 +262,34 @@ app.get('/api/tickets', async (req, res) => {
     }
 });
 
+app.post('/api/tickets/:id/verify', async (req, res) => {
+    try {
+        const { id } = req.params; 
+        const { category, priority } = req.body; 
+
+        // Validate input
+        if (!category || !priority) {
+            return res.status(400).json({ error: 'Category and priority are required.' });
+        }
+
+        const result = await db.run(
+            'UPDATE tickets SET category = ?, priority = ?, is_verified = 1 WHERE id = ?',
+            [category, priority, id]
+        );
+
+        if (result.changes === 0) {
+            return res.status(404).json({ error: 'Ticket not found.' });
+        }
+
+        console.log(`Ticket ${id} verified/corrected by user.`);
+        res.status(200).json({ message: 'Ticket verification successful.' });
+
+    } catch (error) {
+        console.error('Error verifying ticket:', error);
+        res.status(500).json({ error: 'Failed to verify ticket.' });
+    }
+});
+
 app.post('/api/triage', async (req, res) => {
   try {
     const { problem } = req.body;
@@ -292,6 +320,7 @@ async function startServer() {
       category TEXT,
       priority TEXT,
       confidence REAL,
+      is_verified INTEGER DEFAULT 0,
       solution TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
@@ -326,7 +355,6 @@ async function startServer() {
         if (attemptsLeft > 0) {
           const nextPort = port + 1;
           console.log(`Attempting to listen on port ${nextPort} (${attemptsLeft - 1} attempts left)...`);
-          // small delay before retry to avoid tight loop
           setTimeout(() => attemptListen(nextPort, attemptsLeft - 1), 500);
         } else {
           console.error('Exhausted port retry attempts. Please free port or set PORT env variable to another port. Exiting.');
