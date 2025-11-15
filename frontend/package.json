@@ -15,17 +15,7 @@
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "react-router-dom": "^6.14.1",
-    "react-icons": "^5.5.0",
-    "next-themes": "^0.2.1",
-    "sonner": "^1.2.7",
-    "@radix-ui/react-slot": "^1.0.6",
-    "@radix-ui/react-label": "^2.0.2",
-    "class-variance-authority": "^0.7.0",
-    "lucide-react": "^0.268.0",
-    "clsx": "^1.2.1",
-    "@radix-ui/react-avatar": "^1.0.6",
-    "tailwind-merge": "^1.14.0",
-    "@radix-ui/react-tabs": "^1.0.6"
+    "react-icons": "^5.5.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.33.0",

@@ -169,11 +169,11 @@ const QueueView = ({ user }) => {
                       {ticket.subject}
                     </h3>
                     <div className="flex items-center space-x-4 text-sm text-gray-400">
-                      <span>{ticket.customer_name}</span>
+                      <span className="truncate">{ticket.customer_name}</span>
                       <span>•</span>
-                      <span>{ticket.customer_email}</span>
+                      <span className="truncate break-all max-w-xs">{ticket.customer_email}</span>
                     </div>
-                    <p className="text-gray-400 text-sm line-clamp-2">
+                    <p className="text-gray-400 text-sm line-clamp-2 break-words">
                       {ticket.message}
                     </p>
                   </div>

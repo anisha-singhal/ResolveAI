@@ -167,15 +167,15 @@ const TicketReview = ({ user }) => {
                 <div className="flex items-center space-x-4 text-sm">
                   <span className="text-gray-400">From:</span>
                   <span className="text-white font-medium">{ticket.customer_name}</span>
-                  <span className="text-gray-500">({ticket.customer_email})</span>
+                  <span className="text-gray-500 break-all">({ticket.customer_email})</span>
                 </div>
                 <div className="flex items-center space-x-4 text-sm">
                   <span className="text-gray-400">Subject:</span>
-                  <span className="text-white font-medium">{ticket.subject}</span>
+                  <span className="text-white font-medium break-words">{ticket.subject}</span>
                 </div>
               </div>
               <div className="p-4 bg-[#111827] rounded border border-[#374151]">
-                <p className="text-gray-300 whitespace-pre-wrap">{ticket.message}</p>
+                <p className="text-gray-300 whitespace-pre-wrap break-words">{ticket.message}</p>
               </div>
             </CardContent>
           </Card>
@@ -212,7 +212,7 @@ const TicketReview = ({ user }) => {
               <div>
                 <h4 className="text-white font-semibold mb-2">Chain of Thought:</h4>
                 <div className="p-4 bg-[#111827] rounded border border-[#374151]">
-                  <p className="text-gray-400 text-sm italic">"{ticket.chain_of_thought}"</p>
+                  <p className="text-gray-400 text-sm italic break-words">"{ticket.chain_of_thought}"</p>
                 </div>
               </div>
             </CardContent>
@@ -235,11 +235,11 @@ const TicketReview = ({ user }) => {
                   </div>
                   <div className="text-sm">
                     <span className="text-gray-400">Email:</span>
-                    <span className="text-white ml-2">{ticket.customer_email}</span>
+                    <span className="text-white ml-2 break-all">{ticket.customer_email}</span>
                   </div>
                 </div>
                 <div className="p-4 bg-[#111827] rounded border border-[#374151] max-h-96 overflow-y-auto">
-                  <p className="text-gray-300 whitespace-pre-wrap">{ticket.message}</p>
+                  <p className="text-gray-300 whitespace-pre-wrap break-words">{ticket.message}</p>
                 </div>
               </CardContent>
             </Card>

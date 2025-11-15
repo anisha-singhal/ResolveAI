@@ -63,17 +63,50 @@ transporter.verify().then(() => {
 
 async function processProblem(problem){
   console.log("Processing problem with advanced triage:", problem);
+  // Try to get embeddings with limited retries and exponential backoff.
+  // If embeddings fail (quota/rate limit), fall back to doing the generative step without context.
+  let embeddingResult = null;
+  const maxEmbedRetries = 3;
+  let embedDelay = 1000; // start with 1s
+  for (let attempt = 1; attempt <= maxEmbedRetries; attempt++) {
+    try {
+      embeddingResult = await embeddingModel.embedContent(problem);
+      break; // success
+    } catch (e) {
+      console.warn(`embedContent attempt ${attempt} failed:`, e && e.message ? e.message : e);
+      // If it's a 429 (rate limit), we retry with backoff; otherwise break and fallback
+      const status = e && e.status;
+      if (status === 429 && attempt < maxEmbedRetries) {
+        console.log(`Rate limited on embedding, retrying in ${embedDelay}ms...`);
+        await new Promise(r => setTimeout(r, embedDelay));
+        embedDelay *= 2;
+        continue;
+      } else {
+        console.log('Embedding failed and will be skipped for this request.');
+        embeddingResult = null;
+        break;
+      }
+    }
+  }
 
-  const embeddingResult = await embeddingModel.embedContent(problem);
-  const queryVector = embeddingResult.embedding.values;
-
-  const searchResults = await pineconeIndex.query({
-      topK: 2,
-      vector: queryVector,
-      includeMetadata: true,
-  });
-
-  const context = searchResults.matches.map(result => result.metadata.text).join("\n---\n");
+  let context = '';
+  if (embeddingResult && embeddingResult.embedding && embeddingResult.embedding.values) {
+    try {
+      const queryVector = embeddingResult.embedding.values;
+      const searchResults = await pineconeIndex.query({
+        topK: 2,
+        vector: queryVector,
+        includeMetadata: true,
+      });
+      context = searchResults.matches.map(result => result.metadata.text).join("\n---\n");
+    } catch (e) {
+      console.warn('Failed to query Pinecone index for context, continuing without KB context:', e && e.message ? e.message : e);
+      context = '';
+    }
+  } else {
+    // No embeddings available (quota or other failure). We continue without KB context.
+    context = '';
+  }
   console.log("Retrieved context:", context);
 
   const generativeModel = genAI.getGenerativeModel({ model: "models/gemini-flash-latest" });
@@ -81,19 +114,52 @@ async function processProblem(problem){
   const prompt = `
     You are an advanced AI support agent. Your task is to perform a detailed triage of a user's email by following a step-by-step reasoning process.
 
-    Step 1: Analyze the user's email and summarize the core problem.
-    Step 2: Classify the email into one of the following predefined categories: ${SUPPORT_CATEGORIES.join(", ")}.
-    Step 3: Determine the priority: "Low", "Medium", or "High".
-    Step 4: Rate your confidence in this analysis from 0.0 to 1.0.
-    Step 5: Generate a helpful solution for the user based ONLY on the provided context.
+    IMPORTANT INSTRUCTIONS:
+    1. Analyze the user's email carefully for:
+       - Number of distinct issues (multiple issues = lower confidence)
+       - User sentiment (angry/frustrated = lower confidence, requires human touch)
+       - Complexity of the problem
+       - Whether you have enough context from the knowledge base to answer
+    
+    2. Classify the email into ONE of these categories: ${SUPPORT_CATEGORIES.join(", ")}.
+       If multiple issues exist, choose the most critical one.
+    
+    3. Determine priority:
+       - "Low": Simple questions, general inquiries
+       - "Medium": Standard issues, single problem
+       - "High": Multiple issues, billing disputes, angry customers, damaged items
+    
+    4. Rate your confidence (0.0 to 1.0):
+       - Start at 0.9 for simple, single-issue cases
+       - REDUCE by 0.2 for each additional issue detected
+       - REDUCE by 0.2 if customer is angry/frustrated
+       - REDUCE by 0.3 if you lack knowledge base context to properly answer
+       - Minimum confidence should be 0.1
+       - If confidence falls below 0.6, this MUST be reviewed by a human
+    
+    5. Generate a chain of thought that explains your reasoning:
+       - What issues did you detect?
+       - What is the user's sentiment?
+       - Why did you assign this confidence score?
+       - What concerns require human review?
+    
+    6. Generate a helpful solution ONLY if confidence >= 0.8. Otherwise, provide a brief acknowledgment.
 
     Knowledge Base Context:
     ---
-    ${context}
+    ${context || 'No relevant knowledge base entries found.'}
     ---
+    
     User's Email: "${problem}"
 
-    Provide your final analysis as a single JSON object with the keys "category", "priority", "confidence", and "solution".
+    Provide your final analysis as a single JSON object with these keys:
+    {
+      "category": "one of the predefined categories",
+      "priority": "Low", "Medium", or "High",
+      "confidence": number between 0.0 and 1.0,
+      "chain_of_thought": "detailed reasoning about issues detected, sentiment, and why this confidence score",
+      "solution": "your proposed solution or acknowledgment"
+    }
   `;
   
   const result = await generativeModel.generateContent(prompt);
@@ -104,7 +170,13 @@ async function processProblem(problem){
       return JSON.parse(cleanedJson);
   } catch (e) {
       console.error("Failed to parse AI response as JSON:", cleanedJson);
-      return { category: "Uncategorized", priority: "Medium", confidence: 0.5, solution: "Could not process AI response." };
+      return { 
+        category: "General Inquiry", 
+        priority: "Medium", 
+        confidence: 0.5, 
+        chain_of_thought: "Failed to parse AI response - flagging for human review.",
+        solution: "Could not process AI response. This ticket requires human review." 
+      };
   }
 }
 
@@ -180,8 +252,8 @@ async function checkEmails() {
       }
 
       await db.run(
-        'INSERT INTO tickets (sender, subject, body, category, priority, confidence, solution) VALUES (?, ?, ?, ?, ?, ?, ?)',
-        [mail.from.text, mail.subject, mail.text, triageResult.category, triageResult.priority, triageResult.confidence, triageResult.solution]
+        'INSERT INTO tickets (sender, subject, body, category, priority, confidence, solution, chain_of_thought) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        [mail.from.text, mail.subject, mail.text, triageResult.category, triageResult.priority, triageResult.confidence, triageResult.solution, triageResult.chain_of_thought || null]
       );
       console.log('- Saved ticket to the database.');
       
@@ -211,7 +283,12 @@ function parseSender(senderText) {
 function mapTicketRow(row) {
   const { name, email } = parseSender(row.sender);
   const confidencePercent = row.confidence != null ? Math.round(row.confidence * 100) : null;
-  const status = row.is_verified === 1 || confidencePercent >= 80 ? 'resolved' : 'pending';
+  
+  // Status logic:
+  // - 'resolved' if manually verified (is_verified = 1)
+  // - 'resolved' if auto-resolved (confidence >= 80 AND is_verified = 1)
+  // - 'pending' if needs review (confidence < 80 OR not verified)
+  const status = row.is_verified === 1 ? 'resolved' : 'pending';
   const ticketNumber = `TKT-${String(row.id).padStart(5, '0')}`;
 
   return {
@@ -354,16 +431,38 @@ app.post('/api/tickets/:id/resolve', async (req, res) => {
       return res.status(400).json({ error: 'Reply message is required.' });
     }
 
-    const result = await db.run(
+    const ticket = await db.get('SELECT * FROM tickets WHERE id = ?', [id]);
+    if (!ticket) {
+      return res.status(404).json({ error: 'Ticket not found.' });
+    }
+
+    // Parse sender to get email
+    const { email } = parseSender(ticket.sender);
+    const recipientEmail = email || ticket.sender;
+
+    // Send email reply
+    const mailOptions = {
+      from: process.env.IMAP_USER,
+      to: recipientEmail,
+      subject: ticket.subject ? `Re: ${ticket.subject}` : 'Re: Your support request',
+      text: message,
+    };
+
+    try {
+      await transporter.sendMail(mailOptions);
+      console.log(`Email sent successfully to ${recipientEmail} for ticket ${id}`);
+    } catch (sendError) {
+      console.error('Error sending email:', sendError);
+      return res.status(500).json({ error: 'Failed to send email reply.' });
+    }
+
+    // Update ticket in database
+    await db.run(
       'UPDATE tickets SET solution = ?, is_verified = 1 WHERE id = ?',
       [message, id]
     );
 
-    if (result.changes === 0) {
-      return res.status(404).json({ error: 'Ticket not found.' });
-    }
-
-    res.status(200).json({ message: 'Ticket resolved.' });
+    res.status(200).json({ message: 'Ticket resolved and email sent.' });
   } catch (error) {
     console.error('Error resolving ticket:', error);
     res.status(500).json({ error: 'Failed to resolve ticket.' });
@@ -384,18 +483,40 @@ app.post('/api/tickets/:id/resolve-and-save', async (req, res) => {
       return res.status(404).json({ error: 'Ticket not found.' });
     }
 
+    // Parse sender to get email
+    const { email } = parseSender(ticket.sender);
+    const recipientEmail = email || ticket.sender;
+
+    // Send email reply
+    const mailOptions = {
+      from: process.env.IMAP_USER,
+      to: recipientEmail,
+      subject: ticket.subject ? `Re: ${ticket.subject}` : 'Re: Your support request',
+      text: message,
+    };
+
+    try {
+      await transporter.sendMail(mailOptions);
+      console.log(`Email sent successfully to ${recipientEmail} for ticket ${id}`);
+    } catch (sendError) {
+      console.error('Error sending email:', sendError);
+      return res.status(500).json({ error: 'Failed to send email reply.' });
+    }
+
+    // Update ticket in database
     await db.run(
       'UPDATE tickets SET solution = ?, is_verified = 1 WHERE id = ?',
       [message, id]
     );
 
+    // Save to knowledge base
     const summary = ticket.subject || `Ticket ${id}`;
     await db.run(
       'INSERT INTO knowledge_entries (ticket_id, issue_summary, resolution, category) VALUES (?, ?, ?, ?)',
       [id, summary, message, ticket.category]
     );
 
-    res.status(200).json({ message: 'Ticket resolved and saved to knowledge base.' });
+    res.status(200).json({ message: 'Ticket resolved, email sent, and saved to knowledge base.' });
   } catch (error) {
     console.error('Error resolving ticket and saving to KB:', error);
     res.status(500).json({ error: 'Failed to resolve and save ticket.' });
