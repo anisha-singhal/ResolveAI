@@ -9,22 +9,7 @@
 
 ## 🚀 Live Demo
 
-**[🌐 Frontend Dashboard](https://resolve-ai-zs2q.vercel.app/)** | **[⚡ Backend API](https://resolveai-backend.onrender.com)** | **[🎥 Video Demo](YOUR_VIDEO_DEMO_URL_HERE)**
-
-## 📱 Application Demo
-
-![ResolveAI Demo](./assets/clideo_editor_e5eba2dd1d4941dab544e2e07345b063.gif)
-*👆 Complete workflow: Email processing → AI analysis → Automatic replies → Human oversight*
-
-### 📸 Interface Screenshots
-
-<div align="center">
-
-| Dashboard Overview | Ticket Details | AI Analysis |
-|:------------------:|:--------------:|:-----------:|
-| ![Dashboard](./assets/dashboard.png) | ![Ticket](./assets/ticket-details.png) | ![Analysis](./assets/ai-analysis.png) |
-| *Professional triage interface* | *Detailed ticket view* | *AI confidence scoring* |
-
+**[🌐 Frontend Link](https://resolve-ai-zs2q.vercel.app/)** | **[⚡ Backend API](https://resolveai-backend.onrender.com)** | **[🎥 Video Demo](YOUR_VIDEO_DEMO_URL_HERE)**
 </div>
 
 ResolveAI is an end-to-end autonomous system designed to ingest, analyze, and respond to customer support emails, eliminating the need for manual intervention in the initial triage process. It leverages Retrieval-Augmented Generation (RAG) and advanced prompt engineering to provide context-aware solutions and categorizes incoming requests.
@@ -32,6 +17,7 @@ ResolveAI is an end-to-end autonomous system designed to ingest, analyze, and re
 ## 🎥 Live Demo
 
 ![ResolveAI Demo](./assets/clideo_editor_e5eba2dd1d4941dab544e2e07345b063.gif)
+
 *Complete ResolveAI workflow: Email processing → AI analysis → Automatic replies → Human oversight*
 
 In today's fast-paced customer service environment, quickly addressing support requests is crucial. ResolveAI acts as a 24/7 digital team member, performing the initial triage automatically:
@@ -132,98 +118,6 @@ In today's fast-paced customer service environment, quickly addressing support r
 
 * **Backend:** Deployed on [Render](https://resolveai-backend.onrender.com). Remember to set environment variables in the Render service settings.
 * **Frontend:** Deployed on [Vercel](https://resolve-ai-zs2q.vercel.app/). Set the `VITE_API_BASE_URL` environment variable in Vercel project settings to your live Render backend URL.
-
-## 🎥 How to Add GIFs to Your README
-
-### Step 1: Create Your Demo GIF
-
-**Recommended Tools:**
-- **Windows**: [ScreenToGif](https://www.screentogif.com/) (Free)
-- **Mac**: [Kap](https://getkap.co/) (Free)
-- **Cross-platform**: [LICEcap](https://www.cockos.com/licecap/) (Free)
-
-**Recording Tips:**
-- 📹 Keep it **10-30 seconds** for optimal loading
-- 💻 Use **1200x800px** resolution max
-- 📏 Show **key features** in sequence:
-  1. Email arriving
-  2. AI processing 
-  3. Dashboard update
-  4. Ticket details
-  5. Verification process
-
-### Step 2: Optimize Your GIF
-
-**Size Requirements:**
-- 📏 GitHub limit: **10MB max**
-- 🎯 Recommended: **3-5MB** for fast loading
-- ⚡ Use compression tools like [EZGIF](https://ezgif.com/optimize)
-
-### Step 3: Add to Repository
-
-#### Method 1: Local Assets Folder (Recommended)
-```bash
-# Create assets directory (already done)
-mkdir assets
-
-# Add your files:
-ResolveAI/
-└── assets/
-    ├── resolveai-demo.gif     # Main demo
-    ├── dashboard.png          # Screenshot 1  
-    ├── ticket-details.png     # Screenshot 2
-    └── ai-analysis.png        # Screenshot 3
-```
-
-**Then update README.md:**
-```markdown
-![ResolveAI Demo](./assets/resolveai-demo.gif)
-```
-
-#### Method 2: GitHub Issues (Alternative)
-1. Go to your repo's **Issues** tab
-2. Create a **New Issue** (or use existing)
-3. **Drag & drop** your GIF into the comment box
-4. GitHub will generate a URL like:
-   ```
-   https://github.com/user/repo/assets/12345/filename.gif
-   ```
-5. **Copy the URL** and use in README
-6. **Close/delete** the issue
-
-#### Method 3: GitHub Releases
-1. Go to **Releases** → **Create new release**
-2. **Upload GIF** as release asset  
-3. **Publish release**
-4. Use direct asset URL in README
-
-### Step 4: Update README References
-
-Replace these placeholders with your actual files:
-
-```markdown
-# ✅ COMPLETED - Your actual GIF is now linked:
-![ResolveAI Demo](./assets/clideo_editor_e5eba2dd1d4941dab544e2e07345b063.gif)
-
-# Optional: Rename to something shorter like:
-![ResolveAI Demo](./assets/resolveai-demo.gif)
-
-# Update screenshots too:
-![Dashboard](./assets/my-dashboard-screenshot.png)
-![Ticket Details](./assets/my-ticket-view.png)  
-![AI Analysis](./assets/my-ai-analysis.png)
-```
-
-### 📝 Content Ideas for Your Demo GIF
-
-**Suggested Flow (30 seconds):**
-1. **📨 Email Inbox** - Show new email arriving
-2. **🤖 Processing** - Brief loading/processing indicator  
-3. **📊 Dashboard** - Ticket appears in sidebar with stats
-4. **👁️ Ticket View** - Click ticket to show details
-5. **🧠 AI Analysis** - Highlight category, priority, confidence
-6. **✅ Verification** - Show verification button/process
-7. **📧 Email Reply** - Show sent reply (if possible)
 
 ## 🚀 Future Enhancements
 
