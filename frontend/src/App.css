@@ -1,42 +1,129 @@
-#root {
-  max-width: 1280px;
-  margin: 0 auto;
-  padding: 2rem;
-  text-align: center;
+/* Luminous Dark Mode Theme */
+* {
+  box-sizing: border-box;
 }
 
-.logo {
-  height: 6em;
-  padding: 1.5em;
-  will-change: filter;
-  transition: filter 300ms;
-}
-.logo:hover {
-  filter: drop-shadow(0 0 2em #646cffaa);
-}
-.logo.react:hover {
-  filter: drop-shadow(0 0 2em #61dafbaa);
+body {
+  margin: 0;
+  padding: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
 }
 
-@keyframes logo-spin {
+.App {
+  min-height: 100vh;
+  background-color: #111827;
+}
+
+/* Splash Screen Animations */
+@keyframes fillAnimation {
+  0% {
+    background-position: -100% 0;
+  }
+  100% {
+    background-position: 100% 0;
+  }
+}
+
+.luminous-text {
+  font-size: 4rem;
+  font-weight: 900;
+  letter-spacing: 0.05em;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    transparent 50%,
+    #8B5CF6 50%,
+    #8B5CF6 100%
+  );
+  background-size: 200% 100%;
+  background-position: -100% 0;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  -webkit-text-stroke: 2px #8B5CF6;
+  animation: fillAnimation 1.5s ease-in-out forwards;
+  animation-delay: 0.5s;
+}
+
+@keyframes fadeIn {
   from {
-    transform: rotate(0deg);
+    opacity: 0;
   }
   to {
-    transform: rotate(360deg);
+    opacity: 1;
   }
 }
 
-@media (prefers-reduced-motion: no-preference) {
-  a:nth-of-type(2) .logo {
-    animation: logo-spin infinite 20s linear;
+.fade-in {
+  animation: fadeIn 0.5s ease-in forwards;
+}
+
+@keyframes fadeOut {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
   }
 }
 
-.card {
-  padding: 2em;
+.fade-out {
+  animation: fadeOut 0.3s ease-out forwards;
 }
 
-.read-the-docs {
-  color: #888;
+/* Scrollbar Styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #1F2937;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #4B5563;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #6B7280;
+}
+
+/* Custom Classes */
+.sidebar-fixed {
+  position: fixed;
+  top: 0;
+  left: 0;
+  height: 100vh;
+  overflow-y: auto;
+}
+
+.main-content-offset {
+  margin-left: 256px; /* Width of sidebar */
+}
+
+.confidence-low {
+  color: #EF4444;
+  background-color: rgba(239, 68, 68, 0.1);
+}
+
+.confidence-high {
+  color: #10B981;
+  background-color: rgba(16, 185, 129, 0.1);
+}
+
+/* Ticket Card Hover */
+.ticket-card {
+  transition: all 0.2s ease-in-out;
+}
+
+.ticket-card:hover {
+  transform: translateX(4px);
+  box-shadow: 0 4px 6px -1px rgba(139, 92, 246, 0.1), 0 2px 4px -1px rgba(139, 92, 246, 0.06);
 }
