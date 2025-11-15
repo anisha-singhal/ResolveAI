@@ -230,7 +230,7 @@ const KnowledgeBase = () => {
               ref={fileInputRef}
               type="file"
               onChange={handleFileSelect}
-              className="w-full max-w-md rounded-md border border-[#374151] bg-[#020617] text-white file:mr-4 file:py-2.5 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-[#8B5CF6] file:text-white hover:file:bg-[#7C3AED]"
+              className="bg-transparent border-0 text-gray-300 p-0 file:mr-4 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-[#8B5CF6] file:text-white hover:file:bg-[#7C3AED]"
               data-testid="file-input"
             />
             {selectedFile && (
