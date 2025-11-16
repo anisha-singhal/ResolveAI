@@ -55,6 +55,22 @@ const transporter = nodemailer.createTransport({
     }
 });
 
+// Helper to avoid hanging forever on SMTP issues
+async function safeSendMail(mailOptions) {
+  try {
+    await Promise.race([
+      transporter.sendMail(mailOptions),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('SMTP timeout after 5s')), 5000)
+      ),
+    ]);
+    return { ok: true };
+  } catch (err) {
+    console.error('Error in safeSendMail:', err);
+    return { ok: false, error: err };
+  }
+}
+
 transporter.verify().then(() => {
   console.log('Nodemailer transporter verified. SMTP is ready to send emails.');
 }).catch(err => {
@@ -448,13 +464,12 @@ app.post('/api/tickets/:id/resolve', async (req, res) => {
       text: message,
     };
 
-    try {
-      await transporter.sendMail(mailOptions);
+    const sendResult = await safeSendMail(mailOptions);
+    if (sendResult.ok) {
       console.log(`Email sent successfully to ${recipientEmail} for ticket ${id}`);
-    } catch (sendError) {
-      console.error('Error sending email (continuing anyway):', sendError);
-      // NOTE: For demo purposes, we still mark the ticket as resolved
-      // even if the email could not be sent.
+    } else {
+      console.error('Error sending email (continuing anyway):', sendResult.error);
+      // For demo and robustness, continue to resolve the ticket even if email fails or times out.
     }
 
     // Update ticket in database
@@ -496,12 +511,12 @@ app.post('/api/tickets/:id/resolve-and-save', async (req, res) => {
       text: message,
     };
 
-    try {
-      await transporter.sendMail(mailOptions);
+    const sendResult = await safeSendMail(mailOptions);
+    if (sendResult.ok) {
       console.log(`Email sent successfully to ${recipientEmail} for ticket ${id}`);
-    } catch (sendError) {
-      console.error('Error sending email:', sendError);
-      return res.status(500).json({ error: 'Failed to send email reply.' });
+    } else {
+      console.error('Error sending email (continuing anyway):', sendResult.error);
+      // For demo and robustness, continue to resolve the ticket and save to KB even if email fails or times out.
     }
 
     // Update ticket in database
