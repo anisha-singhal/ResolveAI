@@ -525,12 +525,36 @@ app.post('/api/tickets/:id/resolve-and-save', async (req, res) => {
       [message, id]
     );
 
-    // Save to knowledge base
+    // Save to knowledge base (SQLite)
     const summary = ticket.subject || `Ticket ${id}`;
     await db.run(
       'INSERT INTO knowledge_entries (ticket_id, issue_summary, resolution, category) VALUES (?, ?, ?, ?)',
       [id, summary, message, ticket.category]
     );
+
+    // Also index this resolution into the Pinecone knowledge base so future triage can use it
+    const kbText = `${summary}\n\n${message}`;
+    try {
+      const embeddingResult = await embeddingModel.embedContent(kbText);
+      if (embeddingResult && embeddingResult.embedding && embeddingResult.embedding.values) {
+        await pineconeIndex.upsert({
+          vectors: [
+            {
+              id: `kb-${id}-${Date.now()}`,
+              values: embeddingResult.embedding.values,
+              metadata: {
+                text: kbText,
+                ticket_id: id,
+                category: ticket.category || null,
+              },
+            },
+          ],
+        });
+        console.log('Saved KB entry to Pinecone vector index for future triage.');
+      }
+    } catch (e) {
+      console.warn('Failed to upsert KB entry into Pinecone (continuing anyway):', e && e.message ? e.message : e);
+    }
 
     res.status(200).json({ message: 'Ticket resolved, email sent, and saved to knowledge base.' });
   } catch (error) {
