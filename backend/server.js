@@ -820,6 +820,43 @@ async function startServer() {
   pineconeIndex = pinecone.index("resolveai-kb");
   console.log("Pinecone vector store initialized successfully.");
 
+  // Index static knowledge base text files into Pinecone so they are available for triage
+  try {
+    const kbDir = path.join(__dirname, 'knowledge_base');
+    if (fs.existsSync(kbDir)) {
+      const files = fs.readdirSync(kbDir).filter(f => f.toLowerCase().endsWith('.txt'));
+      for (const file of files) {
+        const fullPath = path.join(kbDir, file);
+        const text = fs.readFileSync(fullPath, 'utf-8');
+        if (!text.trim()) continue;
+
+        try {
+          const embeddingVector = await getJinaEmbedding(text);
+          if (embeddingVector && Array.isArray(embeddingVector)) {
+            await pineconeIndex.upsert({
+              vectors: [
+                {
+                  id: `static-kb-${file}-${Date.now()}`,
+                  values: embeddingVector,
+                  metadata: {
+                    text,
+                    source: 'static_file',
+                    filename: file,
+                  },
+                },
+              ],
+            });
+            console.log(`Indexed static KB file into Pinecone: ${file}`);
+          }
+        } catch (e) {
+          console.warn(`Failed to index static KB file ${file} into Pinecone:`, e && e.message ? e.message : e);
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('Error while indexing static knowledge_base files (continuing anyway):', e && e.message ? e.message : e);
+  }
+
   cron.schedule('* * * * *', checkEmails);
   console.log('Automated email checker is scheduled to run every minute.');
 
