@@ -40,7 +40,7 @@ app.use(express.json());
 let db; 
 let pineconeIndex;
 let genAI;
-let embeddingModel;
+// We now use Jina AI for embeddings instead of Gemini.
 
 const transporter = nodemailer.createTransport({
     host: 'smtp.gmail.com',
@@ -71,6 +71,37 @@ async function safeSendMail(mailOptions) {
   }
 }
 
+// --------- Jina AI Embeddings helper ---------
+async function getJinaEmbedding(text) {
+  const apiKey = process.env.JINA_API_KEY;
+  if (!apiKey) {
+    throw new Error('JINA_API_KEY is not set');
+  }
+
+  const res = await fetch('https://api.jina.ai/v1/embeddings', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: 'jina-embeddings-v4',
+      input: text,
+    }),
+  });
+
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Jina embedding error ${res.status}: ${body}`);
+  }
+
+  const data = await res.json();
+  if (!data || !data.data || !data.data[0] || !Array.isArray(data.data[0].embedding)) {
+    throw new Error('Unexpected Jina embedding response format');
+  }
+  return data.data[0].embedding;
+}
+
 transporter.verify().then(() => {
   console.log('Nodemailer transporter verified. SMTP is ready to send emails.');
 }).catch(err => {
@@ -81,34 +112,33 @@ async function processProblem(problem){
   console.log("Processing problem with advanced triage:", problem);
   // Try to get embeddings with limited retries and exponential backoff.
   // If embeddings fail (quota/rate limit), fall back to doing the generative step without context.
-  let embeddingResult = null;
+  let embeddingVector = null;
   const maxEmbedRetries = 3;
   let embedDelay = 1000; // start with 1s
   for (let attempt = 1; attempt <= maxEmbedRetries; attempt++) {
     try {
-      embeddingResult = await embeddingModel.embedContent(problem);
+      embeddingVector = await getJinaEmbedding(problem);
       break; // success
     } catch (e) {
-      console.warn(`embedContent attempt ${attempt} failed:`, e && e.message ? e.message : e);
-      // If it's a 429 (rate limit), we retry with backoff; otherwise break and fallback
-      const status = e && e.status;
-      if (status === 429 && attempt < maxEmbedRetries) {
-        console.log(`Rate limited on embedding, retrying in ${embedDelay}ms...`);
+      console.warn(`Jina embed attempt ${attempt} failed:`, e && e.message ? e.message : e);
+      // If it's a rate limit, retry with backoff; otherwise break and fallback
+      if (attempt < maxEmbedRetries) {
+        console.log(`Embedding failed, retrying in ${embedDelay}ms...`);
         await new Promise(r => setTimeout(r, embedDelay));
         embedDelay *= 2;
         continue;
       } else {
         console.log('Embedding failed and will be skipped for this request.');
-        embeddingResult = null;
+        embeddingVector = null;
         break;
       }
     }
   }
 
   let context = '';
-  if (embeddingResult && embeddingResult.embedding && embeddingResult.embedding.values) {
+  if (embeddingVector && Array.isArray(embeddingVector)) {
     try {
-      const queryVector = embeddingResult.embedding.values;
+      const queryVector = embeddingVector;
       const searchResults = await pineconeIndex.query({
         topK: 2,
         vector: queryVector,
@@ -535,13 +565,13 @@ app.post('/api/tickets/:id/resolve-and-save', async (req, res) => {
     // Also index this resolution into the Pinecone knowledge base so future triage can use it
     const kbText = `${summary}\n\n${message}`;
     try {
-      const embeddingResult = await embeddingModel.embedContent(kbText);
-      if (embeddingResult && embeddingResult.embedding && embeddingResult.embedding.values) {
+      const embeddingVector = await getJinaEmbedding(kbText);
+      if (embeddingVector && Array.isArray(embeddingVector)) {
         await pineconeIndex.upsert({
           vectors: [
             {
               id: `kb-${id}-${Date.now()}`,
-              values: embeddingResult.embedding.values,
+              values: embeddingVector,
               metadata: {
                 text: kbText,
                 ticket_id: id,
@@ -787,8 +817,7 @@ async function startServer() {
   }
   
   genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
-  embeddingModel = genAI.getGenerativeModel({ model: "embedding-001", taskType: "RETRIEVAL_QUERY"});
-  console.log("Google AI Embedding model initialized.");
+  console.log("Google AI generative model initialized.");
 
   const pinecone = new Pinecone({ apiKey: pineconeApiKey });
   pineconeIndex = pinecone.index("resolveai-kb");
