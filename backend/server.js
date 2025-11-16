@@ -44,14 +44,11 @@ let genAI;
 
 const transporter = nodemailer.createTransport({
     host: 'smtp.gmail.com',
-    port: 465,
-    secure: true, 
+    port: 587,
+    secure: false, // use STARTTLS
     auth: {
         user: process.env.IMAP_USER,
         pass: process.env.IMAP_PASSWORD
-    },
-    tls: {
-      rejectUnauthorized: false
     }
 });
 
