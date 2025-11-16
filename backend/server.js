@@ -496,10 +496,8 @@ app.post('/api/tickets/:id/resolve', async (req, res) => {
       console.log(`Email sent successfully to ${recipientEmail} for ticket ${id}`);
     } else {
       console.error('Error sending email (continuing anyway):', sendResult.error);
-      // For demo and robustness, continue to resolve the ticket even if email fails or times out.
     }
 
-    // Update ticket in database
     await db.run(
       'UPDATE tickets SET solution = ?, is_verified = 1 WHERE id = ?',
       [message, id]
@@ -543,7 +541,6 @@ app.post('/api/tickets/:id/resolve-and-save', async (req, res) => {
       console.log(`Email sent successfully to ${recipientEmail} for ticket ${id}`);
     } else {
       console.error('Error sending email (continuing anyway):', sendResult.error);
-      // For demo and robustness, continue to resolve the ticket and save to KB even if email fails or times out.
     }
 
     // Update ticket in database
@@ -559,7 +556,6 @@ app.post('/api/tickets/:id/resolve-and-save', async (req, res) => {
       [id, summary, message, ticket.category]
     );
 
-    // Also index this resolution into the Pinecone knowledge base so future triage can use it
     const kbText = `${summary}\n\n${message}`;
     try {
       const embeddingVector = await getJinaEmbedding(kbText);
