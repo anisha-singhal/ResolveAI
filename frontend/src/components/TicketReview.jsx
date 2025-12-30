@@ -378,9 +378,10 @@ const TicketReview = ({ user }) => {
           </div>
 
           {/* Action Buttons - Different based on ticket status */}
+          {/* Email already sent if: status='resolved' OR confidence >= 80 (auto-resolved) */}
           <div className="flex justify-end space-x-4">
-            {/* For PENDING tickets (not yet resolved) */}
-            {ticket.status === 'pending' && (
+            {/* For PENDING tickets that need human review (low confidence, not yet resolved) */}
+            {ticket.status === 'pending' && ticket.confidence < 80 && (
               <>
                 <Button
                   onClick={handleResolve}
@@ -434,11 +435,11 @@ const TicketReview = ({ user }) => {
               </>
             )}
 
-            {/* For RESOLVED tickets (already answered by AI or agent) */}
-            {ticket.status === 'resolved' && (
+            {/* For RESOLVED tickets OR AUTO-RESOLVED (confidence >= 80) - email already sent */}
+            {(ticket.status === 'resolved' || ticket.confidence >= 80) && (
               <>
                 <Badge className="bg-green-500/20 text-green-400 border-green-500/50 py-2 px-4">
-                  ✓ Already Resolved & Email Sent
+                  ✓ {ticket.confidence >= 80 && ticket.status !== 'resolved' ? 'Auto-Resolved' : 'Resolved'} & Email Sent
                 </Badge>
 
                 {/* Admin can still add to KB if they want */}

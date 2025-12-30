@@ -9,7 +9,7 @@ const imaps = require('imap-simple');
 const { simpleParser } = require('mailparser');
 const sqlite3 = require('sqlite3').verbose();
 const { open } = require('sqlite');
-const nodemailer = require('nodemailer');
+const { Resend } = require('resend');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const multer = require('multer');
@@ -43,55 +43,84 @@ let groq;
 let imapConnectionHealthy = false;
 // We now use Jina AI for embeddings instead of Gemini.
 
-// --------- Email Configuration ---------
-// Uses EMAIL_USER and EMAIL_PASS for both IMAP and SMTP
+// --------- Email Configuration (Resend API - Cloud Resilient) ---------
+// Uses RESEND_API_KEY for sending emails (works on Render free tier)
+// Uses EMAIL_USER and EMAIL_PASS for IMAP only (reading emails)
 const EMAIL_USER = process.env.EMAIL_USER;
 const EMAIL_PASS = process.env.EMAIL_PASS;
+const RESEND_API_KEY = process.env.RESEND_API_KEY;
+const RESEND_FROM_EMAIL = process.env.RESEND_FROM_EMAIL || 'onboarding@resend.dev'; // Default Resend test sender
 
-// Validate email credentials on startup
+// Initialize Resend client
+let resend = null;
+if (RESEND_API_KEY) {
+  resend = new Resend(RESEND_API_KEY);
+  console.log('📧 [EMAIL] Resend API client initialized');
+} else {
+  console.warn('⚠️  [EMAIL] RESEND_API_KEY not set - email sending will be disabled');
+}
+
+// Validate IMAP credentials for reading emails
 function validateEmailCredentials() {
+  console.log('\n📧 [EMAIL CONFIG] Validating email configuration...');
+  
+  // Check IMAP credentials (for reading emails)
   if (!EMAIL_USER) {
-    console.error('\n[EMAIL ERROR] EMAIL_USER is not set in .env file.');
-    console.error('Please set EMAIL_USER to your Gmail address (e.g., yourname@gmail.com)');
+    console.error('   ❌ EMAIL_USER is not set - cannot read incoming emails');
+    console.error('      Set EMAIL_USER to your Gmail address in Render Environment Variables');
     return false;
   }
   if (!EMAIL_PASS) {
-    console.error('\n[EMAIL ERROR] EMAIL_PASS is not set in .env file.');
-    console.error('Please set EMAIL_PASS to your 16-character Google App Password.');
-    console.error('Generate one at: https://myaccount.google.com/apppasswords');
+    console.error('   ❌ EMAIL_PASS is not set - cannot read incoming emails');
+    console.error('      Set EMAIL_PASS to your 16-character Google App Password');
+    console.error('      Generate one at: https://myaccount.google.com/apppasswords');
     return false;
   }
-  if (EMAIL_PASS.replace(/\s/g, '').length !== 16) {
-    console.warn('\n[EMAIL WARNING] EMAIL_PASS should be a 16-character Google App Password.');
-    console.warn('Current length:', EMAIL_PASS.replace(/\s/g, '').length);
-    console.warn('If you are using a regular password, Gmail will reject the connection.');
-    console.warn('Generate an App Password at: https://myaccount.google.com/apppasswords');
+  
+  console.log(`   ✅ IMAP credentials configured for: ${EMAIL_USER}`);
+  
+  // Check Resend API (for sending emails)
+  if (!RESEND_API_KEY) {
+    console.warn('   ⚠️  RESEND_API_KEY is not set - email replies will be disabled');
+    console.warn('      Sign up at https://resend.com and add RESEND_API_KEY to Render');
+  } else {
+    console.log(`   ✅ Resend API configured for sending from: ${RESEND_FROM_EMAIL}`);
   }
+  
   return true;
 }
 
-const transporter = nodemailer.createTransport({
-    host: 'smtp.gmail.com',
-    port: 587,
-    secure: false, // use STARTTLS
-    auth: {
-        user: EMAIL_USER,
-        pass: EMAIL_PASS
-    }
-});
-
-// Helper to avoid hanging forever on SMTP issues
+// Cloud-resilient email sending using Resend API (uses HTTPS, not SMTP)
 async function safeSendMail(mailOptions) {
+  const { to, subject, text, html } = mailOptions;
+  
+  console.log(`📤 [EMAIL SEND] Attempting to send email...`);
+  console.log(`   To: ${to}`);
+  console.log(`   Subject: ${subject}`);
+  
+  if (!resend) {
+    console.error('   ❌ [EMAIL SEND] Resend client not initialized - RESEND_API_KEY missing');
+    return { ok: false, error: new Error('Email sending disabled - RESEND_API_KEY not configured') };
+  }
+  
   try {
-    await Promise.race([
-      transporter.sendMail(mailOptions),
-      new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('SMTP timeout after 5s')), 5000)
-      ),
-    ]);
-    return { ok: true };
+    const result = await resend.emails.send({
+      from: RESEND_FROM_EMAIL,
+      to: to,
+      subject: subject,
+      text: text,
+      html: html || undefined,
+    });
+    
+    if (result.error) {
+      console.error(`   ❌ [EMAIL SEND] Resend API error:`, result.error);
+      return { ok: false, error: result.error };
+    }
+    
+    console.log(`   ✅ [EMAIL SEND] Email sent successfully! ID: ${result.data?.id}`);
+    return { ok: true, id: result.data?.id };
   } catch (err) {
-    console.error('Error in safeSendMail:', err);
+    console.error(`   ❌ [EMAIL SEND] Exception:`, err.message);
     return { ok: false, error: err };
   }
 }
@@ -127,11 +156,8 @@ async function getJinaEmbedding(text) {
   return data.data[0].embedding;
 }
 
-transporter.verify().then(() => {
-  console.log('Nodemailer transporter verified. SMTP is ready to send emails.');
-}).catch(err => {
-  console.error('Failed to verify nodemailer transporter (SMTP credentials/config):', err);
-});
+// Resend uses HTTPS API - no SMTP verification needed
+// Email configuration will be validated on startup in startServer()
 
 // --------- Rate Limiting Helpers ---------
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
@@ -510,42 +536,47 @@ async function checkEmails() {
         console.log('AI Triage Result:', triageResult);
 
         let autoReplySent = false;
+        let emailStatus = 'pending'; // Track email send status for graceful fallback
         
         if (triageResult.confidence > 0.8) {
-          console.log(`- Confidence (${triageResult.confidence}) > 0.8. Sending automatic reply.`);
+          console.log(`📊 [AUTO-RESOLVE] Confidence (${triageResult.confidence}) > 0.8. Attempting automatic reply...`);
 
-          const originalMessageId = mail.messageId || (mail.headers && mail.headers.get('message-id'));
-          const originalReferences = mail.references || (mail.headers && mail.headers.get('references')) || [];
-          const newReferences = [...(Array.isArray(originalReferences) ? originalReferences : [originalReferences]), originalMessageId].filter(Boolean);
-
+          const recipientEmail = mail.from.value[0].address;
           const mailOptions = {
-              from: EMAIL_USER,
-              to: mail.from.value[0].address,
+              to: recipientEmail,
               subject: mail.subject ? `Re: ${mail.subject}` : 'Re: Your recent inquiry',
               text: triageResult.solution,
-              headers: {
-                'In-Reply-To': originalMessageId,
-                'References': newReferences.join(' ')
-              }
           };
 
-          try {
-              await transporter.sendMail(mailOptions);
-              console.log(`- Sent reply successfully to ${mail.from.value[0].address}.`);
-              autoReplySent = true;
-          } catch (sendError) {
-              console.error("Error sending email reply:", sendError);
+          console.log(`📧 [AUTO-REPLY] Sending to: ${recipientEmail}`);
+          const sendResult = await safeSendMail(mailOptions);
+          
+          if (sendResult.ok) {
+            console.log(`   ✅ [AUTO-REPLY] Email sent successfully to ${recipientEmail}`);
+            autoReplySent = true;
+            emailStatus = 'sent';
+          } else {
+            console.error(`   ❌ [AUTO-REPLY] Failed to send email: ${sendResult.error?.message || 'Unknown error'}`);
+            emailStatus = 'failed';
+            // GRACEFUL FALLBACK: Ticket will still be saved with failed status
           }
         } else {
-          console.log(`- Confidence (${triageResult.confidence}) <= 0.8. Flagging for human review. Reply NOT sent.`);
+          console.log(`📋 [HUMAN REVIEW] Confidence (${triageResult.confidence}) <= 0.8. Flagging for human review.`);
+          emailStatus = 'needs_review';
         }
 
-        // Mark as verified (is_verified = 1) if auto-reply was successfully sent
+        // GRACEFUL FALLBACK: Always save ticket to database, even if email fails
+        // Include email status in solution field for visibility
+        const solutionWithStatus = emailStatus === 'failed' 
+          ? `[EMAIL FAILED TO SEND]\n\n${triageResult.solution}` 
+          : triageResult.solution;
+        
         await db.run(
           'INSERT INTO tickets (sender, subject, body, category, priority, confidence, solution, chain_of_thought, is_verified) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-          [mail.from?.text || 'Unknown', mail.subject, mail.text, triageResult.category, triageResult.priority, triageResult.confidence, triageResult.solution, triageResult.chain_of_thought || null, autoReplySent ? 1 : 0]
+          [mail.from?.text || 'Unknown', mail.subject, mail.text, triageResult.category, triageResult.priority, triageResult.confidence, solutionWithStatus, triageResult.chain_of_thought || null, autoReplySent ? 1 : 0]
         );
-        console.log(`- Saved ticket to the database (auto-resolved: ${autoReplySent}).`);
+        
+        console.log(`💾 [DATABASE] Ticket saved (status: ${emailStatus}, auto-resolved: ${autoReplySent})`);
         processedCount++;
 
       } catch (aiError) {
@@ -844,27 +875,38 @@ app.post('/api/tickets/:id/resolve', authMiddleware, async (req, res) => {
     const { email } = parseSender(ticket.sender);
     const recipientEmail = email || ticket.sender;
 
-    // Send email reply
+    console.log(`📧 [RESOLVE] Sending reply to ticket ${id}...`);
+    
+    // Send email reply via Resend API
     const mailOptions = {
-      from: EMAIL_USER,
       to: recipientEmail,
       subject: ticket.subject ? `Re: ${ticket.subject}` : 'Re: Your support request',
       text: message,
     };
 
     const sendResult = await safeSendMail(mailOptions);
+    
+    let emailStatus = 'sent';
     if (sendResult.ok) {
-      console.log(`Email sent successfully to ${recipientEmail} for ticket ${id}`);
+      console.log(`   ✅ [RESOLVE] Email sent successfully to ${recipientEmail}`);
     } else {
-      console.error('Error sending email (continuing anyway):', sendResult.error);
+      console.error(`   ❌ [RESOLVE] Email failed: ${sendResult.error?.message || 'Unknown error'}`);
+      emailStatus = 'failed';
+      // GRACEFUL FALLBACK: Still mark ticket as resolved, but note email failure
     }
 
+    // Update ticket - mark as resolved even if email failed
+    const solutionWithStatus = emailStatus === 'failed' 
+      ? `[EMAIL FAILED TO SEND]\n\n${message}` 
+      : message;
+    
     await db.run(
       'UPDATE tickets SET solution = ?, is_verified = 1 WHERE id = ?',
-      [message, id]
+      [solutionWithStatus, id]
     );
 
-    res.status(200).json({ message: 'Ticket resolved (email send attempted).' });
+    console.log(`   💾 [RESOLVE] Ticket ${id} marked as resolved (email: ${emailStatus})`);
+    res.status(200).json({ message: `Ticket resolved (email: ${emailStatus})` });
   } catch (error) {
     console.error('Error resolving ticket:', error);
     res.status(500).json({ error: 'Failed to resolve ticket.' });
@@ -889,25 +931,34 @@ app.post('/api/tickets/:id/resolve-and-save', adminMiddleware, async (req, res) 
     const { email } = parseSender(ticket.sender);
     const recipientEmail = email || ticket.sender;
 
-    // Send email reply
+    console.log(`📧 [RESOLVE+KB] Sending reply and saving to KB for ticket ${id}...`);
+    
+    // Send email reply via Resend API
     const mailOptions = {
-      from: EMAIL_USER,
       to: recipientEmail,
       subject: ticket.subject ? `Re: ${ticket.subject}` : 'Re: Your support request',
       text: message,
     };
 
     const sendResult = await safeSendMail(mailOptions);
+    
+    let emailStatus = 'sent';
     if (sendResult.ok) {
-      console.log(`Email sent successfully to ${recipientEmail} for ticket ${id}`);
+      console.log(`   ✅ [RESOLVE+KB] Email sent successfully to ${recipientEmail}`);
     } else {
-      console.error('Error sending email (continuing anyway):', sendResult.error);
+      console.error(`   ❌ [RESOLVE+KB] Email failed: ${sendResult.error?.message || 'Unknown error'}`);
+      emailStatus = 'failed';
+      // GRACEFUL FALLBACK: Still save to KB, but note email failure
     }
 
     // Update ticket in database
+    const solutionWithStatus = emailStatus === 'failed' 
+      ? `[EMAIL FAILED TO SEND]\n\n${message}` 
+      : message;
+    
     await db.run(
       'UPDATE tickets SET solution = ?, is_verified = 1 WHERE id = ?',
-      [message, id]
+      [solutionWithStatus, id]
     );
 
     // Save to knowledge base (SQLite)
@@ -1623,11 +1674,8 @@ async function startServer() {
       }
     }
 
-    // Close SMTP transporter
-    if (transporter) {
-      transporter.close();
-      console.log('   ✅ SMTP transporter closed');
-    }
+    // Resend API doesn't need explicit cleanup (uses HTTP)
+    console.log('   ✅ Email service (Resend API) - no cleanup needed');
 
     console.log('\n👋 ResolveAI shutdown complete. Goodbye!\n');
     process.exit(0);
