@@ -30,7 +30,7 @@ const LoginScreen = ({ onLogin }) => {
       if (response.ok) {
         onLogin(data.token, data.user);
       } else {
-        setError(data.detail || 'Invalid email or password');
+        setError(data.error || 'Invalid email or password');
       }
     } catch (err) {
       setError('Failed to connect to server. Please try again.');

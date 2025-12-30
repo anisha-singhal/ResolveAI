@@ -4,6 +4,7 @@ import QueueView from '@/components/QueueView';
 import TicketReview from '@/components/TicketReview';
 import Analytics from '@/components/Analytics';
 import KnowledgeBase from '@/components/KnowledgeBase';
+import KBRequests from '@/components/KBRequests';
 
 const Dashboard = ({ user, onLogout }) => {
   const navigate = useNavigate();
@@ -29,10 +30,13 @@ const Dashboard = ({ user, onLogout }) => {
           <Route path="/" element={<QueueView user={user} />} />
           <Route path="/queue" element={<QueueView user={user} />} />
           <Route path="/ticket/:ticketId" element={<TicketReview user={user} />} />
+          {/* Knowledge Base - visible to all users (read-only for agents) */}
+          <Route path="/knowledge-base" element={<KnowledgeBase user={user} />} />
+          {/* Admin only routes */}
           {user.role === 'admin' && (
             <>
               <Route path="/analytics" element={<Analytics />} />
-              <Route path="/knowledge-base" element={<KnowledgeBase />} />
+              <Route path="/kb-requests" element={<KBRequests />} />
             </>
           )}
         </Routes>

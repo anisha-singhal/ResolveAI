@@ -10,7 +10,8 @@ import { Loader2, BookOpen, Upload, Download, Trash2, File, FileText } from 'luc
 import { API } from '@/App';
 import { toast } from 'sonner';
 
-const KnowledgeBase = () => {
+const KnowledgeBase = ({ user }) => {
+  const isAdmin = user?.role === 'admin';
   const [entries, setEntries] = useState([]);
   const [files, setFiles] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -110,7 +111,7 @@ const KnowledgeBase = () => {
         fetchFiles();
       } else {
         const data = await response.json();
-        toast.error(data.detail || 'Failed to upload file');
+        toast.error(data.error || 'Failed to upload file');
       }
     } catch (err) {
       toast.error('Failed to connect to server');
@@ -215,62 +216,64 @@ const KnowledgeBase = () => {
         </p>
       </div>
 
-      {/* File Upload Section */}
-      <Card className="bg-[#1F2937] border-[#374151]">
-        <CardHeader>
-          <CardTitle className="text-white flex items-center">
-            <Upload className="mr-2 h-5 w-5" />
-            Upload Reference Files
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="space-y-2">
-            <Label className="text-gray-300">Select File (Max 10MB)</Label>
-            <Input
-              ref={fileInputRef}
-              type="file"
-              onChange={handleFileSelect}
-              className="bg-transparent border-0 text-gray-300 p-0 file:mr-4 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-[#8B5CF6] file:text-white hover:file:bg-[#7C3AED]"
-              data-testid="file-input"
-            />
-            {selectedFile && (
-              <p className="text-sm text-gray-400">
-                Selected: {selectedFile.name} ({formatFileSize(selectedFile.size)})
-              </p>
-            )}
-          </div>
+      {/* File Upload Section - Admin Only */}
+      {isAdmin && (
+        <Card className="bg-[#1F2937] border-[#374151]">
+          <CardHeader>
+            <CardTitle className="text-white flex items-center">
+              <Upload className="mr-2 h-5 w-5" />
+              Upload Reference Files
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <Label className="text-gray-300">Select File (Max 10MB)</Label>
+              <Input
+                ref={fileInputRef}
+                type="file"
+                onChange={handleFileSelect}
+                className="bg-transparent border-0 text-gray-300 p-0 file:mr-4 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-[#8B5CF6] file:text-white hover:file:bg-[#7C3AED]"
+                data-testid="file-input"
+              />
+              {selectedFile && (
+                <p className="text-sm text-gray-400">
+                  Selected: {selectedFile.name} ({formatFileSize(selectedFile.size)})
+                </p>
+              )}
+            </div>
 
-          <div className="space-y-2">
-            <Label className="text-gray-300">Description (Optional)</Label>
-            <Input
-              value={fileDescription}
-              onChange={(e) => setFileDescription(e.target.value)}
-              placeholder="Brief description of this file..."
-              className="bg-[#111827] border-[#374151] text-white placeholder:text-gray-500"
-              data-testid="file-description-input"
-            />
-          </div>
+            <div className="space-y-2">
+              <Label className="text-gray-300">Description (Optional)</Label>
+              <Input
+                value={fileDescription}
+                onChange={(e) => setFileDescription(e.target.value)}
+                placeholder="Brief description of this file..."
+                className="bg-[#111827] border-[#374151] text-white placeholder:text-gray-500"
+                data-testid="file-description-input"
+              />
+            </div>
 
-          <Button
-            onClick={handleFileUpload}
-            disabled={!selectedFile || uploading}
-            className="bg-[#8B5CF6] hover:bg-[#7C3AED] text-white"
-            data-testid="upload-button"
-          >
-            {uploading ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Uploading...
-              </>
-            ) : (
-              <>
-                <Upload className="mr-2 h-4 w-4" />
-                Upload File
-              </>
-            )}
-          </Button>
-        </CardContent>
-      </Card>
+            <Button
+              onClick={handleFileUpload}
+              disabled={!selectedFile || uploading}
+              className="bg-[#8B5CF6] hover:bg-[#7C3AED] text-white"
+              data-testid="upload-button"
+            >
+              {uploading ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Uploading...
+                </>
+              ) : (
+                <>
+                  <Upload className="mr-2 h-4 w-4" />
+                  Upload File
+                </>
+              )}
+            </Button>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Files Section */}
       {files.length > 0 && (
@@ -311,15 +314,17 @@ const KnowledgeBase = () => {
                     >
                       <Download className="h-4 w-4" />
                     </Button>
-                    <Button
-                      onClick={() => handleFileDelete(file.id)}
-                      variant="outline"
-                      size="sm"
-                      className="border-[#374151] text-red-400 hover:bg-red-500 hover:text-white"
-                      data-testid={`delete-file-${file.id}`}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
+                    {isAdmin && (
+                      <Button
+                        onClick={() => handleFileDelete(file.id)}
+                        variant="outline"
+                        size="sm"
+                        className="border-[#374151] text-red-400 hover:bg-red-500 hover:text-white"
+                        data-testid={`delete-file-${file.id}`}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    )}
                   </div>
                 </div>
               </CardContent>

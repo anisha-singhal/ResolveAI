@@ -1,10 +1,40 @@
+import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Separator } from '@/components/ui/separator';
-import { Inbox, BarChart3, BookOpen, LogOut } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
+import { Inbox, BarChart3, BookOpen, LogOut, ClipboardCheck } from 'lucide-react';
+import { API } from '@/App';
 
 const Sidebar = ({ user, onLogout, onNavigate, currentPath }) => {
+  const [pendingKBRequests, setPendingKBRequests] = useState(0);
+  
   const isActive = (path) => currentPath.includes(path);
+
+  // Fetch pending KB request count for admins
+  useEffect(() => {
+    if (user.role === 'admin') {
+      fetchPendingCount();
+      // Refresh count every 30 seconds
+      const interval = setInterval(fetchPendingCount, 30000);
+      return () => clearInterval(interval);
+    }
+  }, [user.role]);
+
+  const fetchPendingCount = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${API}/kb-requests/count`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setPendingKBRequests(data.count);
+      }
+    } catch (err) {
+      console.error('Failed to fetch KB request count:', err);
+    }
+  };
 
   return (
     <div 
@@ -35,8 +65,45 @@ const Sidebar = ({ user, onLogout, onNavigate, currentPath }) => {
           Queue
         </Button>
 
+        {/* Knowledge Base - visible to all users */}
+        <Button
+          onClick={() => onNavigate('/dashboard/knowledge-base')}
+          className={`w-full justify-start ${
+            isActive('/knowledge-base')
+              ? 'bg-[#4338CA] hover:bg-[#4F46E5]'
+              : 'bg-transparent hover:bg-[#4338CA]'
+          } text-white`}
+          data-testid="knowledge-base-button"
+        >
+          <BookOpen className="mr-2 h-4 w-4" />
+          Knowledge Base
+        </Button>
+
+        {/* Admin only sections */}
         {user.role === 'admin' && (
           <>
+            {/* KB Requests with pending count badge */}
+            <Button
+              onClick={() => onNavigate('/dashboard/kb-requests')}
+              className={`w-full justify-between ${
+                isActive('/kb-requests')
+                  ? 'bg-[#4338CA] hover:bg-[#4F46E5]'
+                  : 'bg-transparent hover:bg-[#4338CA]'
+              } text-white`}
+              data-testid="kb-requests-button"
+            >
+              <span className="flex items-center">
+                <ClipboardCheck className="mr-2 h-4 w-4" />
+                KB Requests
+              </span>
+              {pendingKBRequests > 0 && (
+                <Badge className="bg-amber-500 text-white text-xs px-2 py-0.5">
+                  {pendingKBRequests}
+                </Badge>
+              )}
+            </Button>
+
+            {/* Analytics */}
             <Button
               onClick={() => onNavigate('/dashboard/analytics')}
               className={`w-full justify-start ${
@@ -48,19 +115,6 @@ const Sidebar = ({ user, onLogout, onNavigate, currentPath }) => {
             >
               <BarChart3 className="mr-2 h-4 w-4" />
               Analytics
-            </Button>
-
-            <Button
-              onClick={() => onNavigate('/dashboard/knowledge-base')}
-              className={`w-full justify-start ${
-                isActive('/knowledge-base')
-                  ? 'bg-[#4338CA] hover:bg-[#4F46E5]'
-                  : 'bg-transparent hover:bg-[#4338CA]'
-              } text-white`}
-              data-testid="knowledge-base-button"
-            >
-              <BookOpen className="mr-2 h-4 w-4" />
-              Knowledge Base
             </Button>
           </>
         )}

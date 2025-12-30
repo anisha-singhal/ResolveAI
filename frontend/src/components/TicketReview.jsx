@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Loader2, ArrowLeft, Send, Save } from 'lucide-react';
+import { Loader2, ArrowLeft, Send, Save, BookmarkPlus } from 'lucide-react';
 import { API } from '@/App';
 import { toast } from 'sonner';
 
@@ -90,7 +90,124 @@ const TicketReview = ({ user }) => {
         navigate('/dashboard/queue');
       } else {
         const data = await response.json();
-        toast.error(data.detail || 'Failed to resolve ticket');
+        toast.error(data.error || 'Failed to resolve ticket');
+      }
+    } catch (err) {
+      toast.error('Failed to connect to server');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // Admin: Add already-resolved ticket to KB (no email send)
+  const handleAddToKBOnly = async () => {
+    setSubmitting(true);
+    try {
+      const token = localStorage.getItem('token');
+      
+      // Save to knowledge base directly (ticket already resolved)
+      const response = await fetch(`${API}/knowledge-base/add`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          ticket_id: parseInt(ticketId),
+          summary: ticket.subject,
+          resolution: editedReply
+        })
+      });
+
+      if (response.ok) {
+        toast.success('Added to knowledge base!');
+        navigate('/dashboard/queue');
+      } else {
+        const data = await response.json();
+        toast.error(data.error || 'Failed to add to KB');
+      }
+    } catch (err) {
+      toast.error('Failed to connect to server');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // Agent: Request KB save for already-resolved ticket
+  const handleRequestKBSaveOnly = async () => {
+    setSubmitting(true);
+    try {
+      const token = localStorage.getItem('token');
+      
+      const response = await fetch(`${API}/kb-requests`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          ticket_id: parseInt(ticketId),
+          proposed_summary: ticket.subject,
+          proposed_resolution: editedReply
+        })
+      });
+
+      if (response.ok) {
+        toast.success('KB save request sent to admin for approval.');
+        navigate('/dashboard/queue');
+      } else {
+        const data = await response.json();
+        toast.error(data.error || 'Failed to create request');
+      }
+    } catch (err) {
+      toast.error('Failed to connect to server');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // Agent requests KB save (needs admin approval)
+  const handleRequestKBSave = async () => {
+    setSubmitting(true);
+    try {
+      const token = localStorage.getItem('token');
+      
+      // First resolve the ticket
+      const resolveResponse = await fetch(`${API}/tickets/${ticketId}/resolve`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ message: editedReply })
+      });
+
+      if (!resolveResponse.ok) {
+        toast.error('Failed to resolve ticket');
+        return;
+      }
+
+      // Then create KB request for admin approval
+      const kbResponse = await fetch(`${API}/kb-requests`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          ticket_id: parseInt(ticketId),
+          proposed_summary: ticket.subject,
+          proposed_resolution: editedReply
+        })
+      });
+
+      if (kbResponse.ok) {
+        toast.success('Ticket resolved! KB save request sent to admin for approval.');
+        navigate('/dashboard/queue');
+      } else {
+        const data = await kbResponse.json();
+        toast.warning(`Ticket resolved, but KB request failed: ${data.error || 'Unknown error'}`);
+        navigate('/dashboard/queue');
       }
     } catch (err) {
       toast.error('Failed to connect to server');
@@ -260,37 +377,106 @@ const TicketReview = ({ user }) => {
             </Card>
           </div>
 
-          {/* Action Buttons */}
+          {/* Action Buttons - Different based on ticket status */}
           <div className="flex justify-end space-x-4">
-            <Button
-              onClick={handleResolve}
-              disabled={submitting || !editedReply.trim()}
-              className="bg-[#8B5CF6] hover:bg-[#7C3AED] text-white"
-              data-testid="send-approve-button"
-            >
-              {submitting ? (
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              ) : (
-                <Send className="h-4 w-4 mr-2" />
-              )}
-              Send & Approve
-            </Button>
+            {/* For PENDING tickets (not yet resolved) */}
+            {ticket.status === 'pending' && (
+              <>
+                <Button
+                  onClick={handleResolve}
+                  disabled={submitting || !editedReply.trim()}
+                  className="bg-[#8B5CF6] hover:bg-[#7C3AED] text-white"
+                  data-testid="send-approve-button"
+                >
+                  {submitting ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <Send className="h-4 w-4 mr-2" />
+                  )}
+                  Send & Approve
+                </Button>
 
-            {user.role === 'admin' && (
-              <Button
-                onClick={handleResolveAndSave}
-                disabled={submitting || !editedReply.trim()}
-                variant="outline"
-                className="border-[#8B5CF6] text-[#8B5CF6] hover:bg-[#8B5CF6] hover:text-white"
-                data-testid="send-save-kb-button"
-              >
-                {submitting ? (
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                ) : (
-                  <Save className="h-4 w-4 mr-2" />
+                {/* Admin: Direct save to KB */}
+                {user.role === 'admin' && (
+                  <Button
+                    onClick={handleResolveAndSave}
+                    disabled={submitting || !editedReply.trim()}
+                    variant="outline"
+                    className="border-[#8B5CF6] text-[#8B5CF6] hover:bg-[#8B5CF6] hover:text-white"
+                    data-testid="send-save-kb-button"
+                  >
+                    {submitting ? (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <Save className="h-4 w-4 mr-2" />
+                    )}
+                    Send & Save to KB
+                  </Button>
                 )}
-                Send & Save to KB
-              </Button>
+
+                {/* Agent: Request KB save (needs admin approval) */}
+                {user.role === 'agent' && (
+                  <Button
+                    onClick={handleRequestKBSave}
+                    disabled={submitting || !editedReply.trim()}
+                    variant="outline"
+                    className="border-amber-500 text-amber-500 hover:bg-amber-500 hover:text-white"
+                    data-testid="request-kb-save-button"
+                  >
+                    {submitting ? (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <BookmarkPlus className="h-4 w-4 mr-2" />
+                    )}
+                    Request KB Save
+                  </Button>
+                )}
+              </>
+            )}
+
+            {/* For RESOLVED tickets (already answered by AI or agent) */}
+            {ticket.status === 'resolved' && (
+              <>
+                <Badge className="bg-green-500/20 text-green-400 border-green-500/50 py-2 px-4">
+                  ✓ Already Resolved & Email Sent
+                </Badge>
+
+                {/* Admin can still add to KB if they want */}
+                {user.role === 'admin' && (
+                  <Button
+                    onClick={handleAddToKBOnly}
+                    disabled={submitting || !editedReply.trim()}
+                    variant="outline"
+                    className="border-[#8B5CF6] text-[#8B5CF6] hover:bg-[#8B5CF6] hover:text-white"
+                    data-testid="add-to-kb-button"
+                  >
+                    {submitting ? (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <Save className="h-4 w-4 mr-2" />
+                    )}
+                    Add to KB
+                  </Button>
+                )}
+
+                {/* Agent can request KB save for resolved tickets */}
+                {user.role === 'agent' && (
+                  <Button
+                    onClick={handleRequestKBSaveOnly}
+                    disabled={submitting || !editedReply.trim()}
+                    variant="outline"
+                    className="border-amber-500 text-amber-500 hover:bg-amber-500 hover:text-white"
+                    data-testid="request-kb-save-resolved-button"
+                  >
+                    {submitting ? (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <BookmarkPlus className="h-4 w-4 mr-2" />
+                    )}
+                    Request KB Save
+                  </Button>
+                )}
+              </>
             )}
           </div>
         </TabsContent>
